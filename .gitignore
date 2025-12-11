@@ -1,0 +1,7 @@
+.env
+.vscode
+.env*
+!.env.example
+tmp
+*.pb.*
+TPs_Reports

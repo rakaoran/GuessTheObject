@@ -1,0 +1,5 @@
+tmp
+Dockerfile*
+.env
+.gitignore
+.vscode
