@@ -13,18 +13,12 @@ message Message {
     string content = 2;
 }
 
-// NEW: Single drawing path with Fabric.js data
 message DrawingPath {
-    string pathData = 1;      // SVG path data (d attribute)
+    string pathData = 1;      
     string stroke = 2;         // Color
     int32 strokeWidth = 3;     // Line width
     string strokeLineCap = 4;  // Line cap style
     string strokeLineJoin = 5; // Line join style
-}
-
-// NEW: Clear canvas command
-message ClearCanvas {
-    bool clear = 1;
 }
 
 message WordChoice {

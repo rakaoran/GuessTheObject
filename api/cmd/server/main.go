@@ -2,7 +2,6 @@ package main
 
 import (
 	"api/internal/authentication"
-	"api/internal/game"
 	"api/internal/shared/configs"
 	"api/internal/shared/database"
 	"api/internal/shared/logger"
@@ -18,8 +17,6 @@ import (
 func main() {
 
 	database.Initialize()
-	game.LoadWords()
-	game.StartTickers()
 
 	var allowedOrigins = []string{}
 	println(configs.Envs.GIN_MODE, "meowwwwwwwww")
@@ -56,7 +53,6 @@ func main() {
 	}))
 
 	authentication.RegisterRoute(r)
-	game.RegisterRoute(r)
 
 	fmt.Println("api listening on port 5000")
 	err := r.Run(":5000")
