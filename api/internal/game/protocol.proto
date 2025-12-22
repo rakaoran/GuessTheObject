@@ -3,29 +3,95 @@ syntax = "proto3";
 package game;
 option go_package = "api/internal/game;game";
 
-message Event{
-    int32 type = 1;
-    string data = 2;
+message ServerPacket {
+    oneof payload {
+        DrawingData drawing_data = 1;
+        PlayerJoinedLeft player_joined_left = 2;
+        GameStarted game_started = 3;
+        RoundUpdate round_update = 4;
+        PlayerIsChoosingWord player_is_choosing_word = 5;
+        PlayerIsDrawing player_is_drawing = 6;
+        TurnSummary turn_summary = 7;
+        PlayerGuessedTheWord player_guessed_the_word = 8;
+        LeaderBoard leaderboard = 9;
+        PlayerMessage player_message = 10;
+        PleaseChooseAWord please_choose_a_word = 11;
+        InitialRoomSnapshot initial_room_snapshot = 12;
+        PlayerKicked player_kicked = 13;
+    }
+    int64 server_timestamp = 14;
 }
 
-message Message {
-    string from = 1;
-    string content = 2;
+message ClientPacket {
+    oneof payload {
+        DrawingData drawing_data = 1;
+        PlayerMessage player_message = 2;
+        WordChoice word_choice = 3;
+        KickVote kick_vote = 4;
+        StartGame start_game = 5;
+    }
 }
 
-message DrawingPath {
-    string pathData = 1;      
-    string stroke = 2;         // Color
-    int32 strokeWidth = 3;     // Line width
-    string strokeLineCap = 4;  // Line cap style
-    string strokeLineJoin = 5; // Line join style
+message StartGame {
+    // TODO
 }
 
 message WordChoice {
-    int32 wordIndex = 1;
+    // TODO
 }
 
-message TurnSummary{
-    repeated string usernames = 1;
-    repeated int32 scores = 2;
+message KickVote {
+    // TODO
+}
+
+message PlayerKicked {
+    // TODO
+}
+
+message DrawingData {
+    // TODO
+}
+
+message InitialRoomSnapshot {
+    // TODO
+}
+
+message PlayerJoinedLeft {
+    // TODO
+}
+
+message GameStarted {
+    // TODO
+}
+
+message RoundUpdate {
+    // TODO
+}
+
+message PlayerIsChoosingWord {
+    // TODO
+}
+
+message PlayerIsDrawing {
+    // TODO
+}
+
+message TurnSummary {
+    // TODO
+}
+
+message PlayerGuessedTheWord {
+    // TODO
+}
+
+message LeaderBoard {
+    // TODO
+}
+
+message PlayerMessage {
+    // TODO
+}
+
+message PleaseChooseAWord {
+    // TODO
 }

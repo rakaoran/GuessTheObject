@@ -3,3 +3,4 @@ Dockerfile*
 .env
 .gitignore
 .vscode
+*.pb.*
