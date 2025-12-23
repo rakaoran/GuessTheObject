@@ -8,6 +8,7 @@ type Player struct {
 	socket      NetworkSession
 	inbox       ServerPacket
 	pingChan    chan struct{}
+	room        *Room
 }
 
 type RateLimiter struct {

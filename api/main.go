@@ -1,10 +1,10 @@
 package main
 
 import (
-	"api/internal/authentication"
-	"api/internal/shared/configs"
-	"api/internal/shared/database"
-	"api/internal/shared/logger"
+	"api/authentication"
+	"api/shared/configs"
+	"api/shared/database"
+	"api/shared/logger"
 	"slices"
 
 	"fmt"

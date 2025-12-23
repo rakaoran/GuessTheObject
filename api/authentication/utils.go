@@ -1,8 +1,8 @@
 package authentication
 
 import (
-	"api/internal/shared/authorization"
-	"api/internal/shared/configs"
+	"api/shared/authorization"
+	"api/shared/configs"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/base64"

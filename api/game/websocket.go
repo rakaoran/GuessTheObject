@@ -14,6 +14,11 @@ func (wc *WebsocketConnection) send(data []byte) error {
 	return wc.socket.WriteMessage(websocket.BinaryMessage, data)
 }
 
+func (wc *WebsocketConnection) read() ([]byte, error) {
+	_, p, err := wc.socket.ReadMessage()
+	return p, err
+}
+
 func (wc *WebsocketConnection) close(errCode string) {
 	wc.socket.SetWriteDeadline(time.Now().Add(time.Second * 20))
 	wc.socket.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, errCode))

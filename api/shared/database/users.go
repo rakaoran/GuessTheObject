@@ -1,7 +1,7 @@
 package database
 
 import (
-	"api/internal/shared/logger"
+	"api/shared/logger"
 	"errors"
 	"fmt"
 

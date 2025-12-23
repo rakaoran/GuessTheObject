@@ -1,7 +1,7 @@
 package authorization
 
 import (
-	"api/internal/shared/configs"
+	"api/shared/configs"
 	"errors"
 
 	"github.com/golang-jwt/jwt/v5"

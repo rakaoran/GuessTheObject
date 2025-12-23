@@ -1,7 +1,7 @@
 package authentication
 
 import (
-	"api/internal/shared/configs"
+	"api/shared/configs"
 	"net/http"
 
 	"github.com/gin-gonic/gin"

@@ -1,8 +1,8 @@
 package database
 
 import (
-	"api/internal/shared/configs"
-	"api/internal/shared/logger"
+	"api/shared/configs"
+	"api/shared/logger"
 	"context"
 
 	"github.com/jackc/pgx/v5/pgxpool"

@@ -12,6 +12,17 @@ const (
 	STATE_LEADERBOARD
 )
 
+type RoomJoinRequest struct {
+	player  *Player
+	errChan chan string
+}
+
+type ClientPacketEnvelope struct {
+	clientPacket ClientPacket
+	rawBinary    []byte
+	from         *Player
+}
+
 type Room struct {
 	// Identity / metadata
 	id     string
@@ -27,11 +38,12 @@ type Room struct {
 	turnSummaryDuration  time.Duration
 
 	// Runtime state
-	round       int
-	nextTick    time.Time
-	drawerIndex int
-	currentWord string
-	bannedIds   map[string]bool
+	round           int
+	nextTick        time.Time
+	drawerIndex     int
+	currentWord     string
+	bannedIds       map[string]bool
+	scoreIncrements map[*Player]int
 
 	// Gameplay data
 	wordChoices    []string
@@ -43,6 +55,8 @@ type Room struct {
 	players []*Player
 
 	// Communication
-	inbox chan ClientPacket
-	ticks chan struct{}
+	inbox                 chan ClientPacketEnvelope
+	ticks                 chan struct{}
+	playerRemovalRequests chan *Player
+	joinRequests          chan RoomJoinRequest
 }

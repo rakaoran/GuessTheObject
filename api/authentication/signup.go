@@ -1,9 +1,9 @@
 package authentication
 
 import (
-	"api/internal/shared/configs"
-	"api/internal/shared/database"
-	"api/internal/shared/logger"
+	"api/shared/configs"
+	"api/shared/database"
+	"api/shared/logger"
 	"net/http"
 	"regexp"
 	"strings"
