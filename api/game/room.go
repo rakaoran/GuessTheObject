@@ -17,8 +17,12 @@ type RoomJoinRequest struct {
 	errChan chan string
 }
 
+func NewRoomJoinRequest(player *Player) RoomJoinRequest {
+	return RoomJoinRequest{player: player, errChan: make(chan string, 1)}
+}
+
 type ClientPacketEnvelope struct {
-	clientPacket ClientPacket
+	clientPacket *ClientPacket
 	rawBinary    []byte
 	from         *Player
 }

@@ -10,16 +10,20 @@ type WebsocketConnection struct {
 	socket *websocket.Conn
 }
 
-func (wc *WebsocketConnection) send(data []byte) error {
+func (wc *WebsocketConnection) Write(data []byte) error {
 	return wc.socket.WriteMessage(websocket.BinaryMessage, data)
 }
 
-func (wc *WebsocketConnection) read() ([]byte, error) {
+func (wc *WebsocketConnection) Ping() error {
+	return wc.socket.WriteMessage(websocket.PingMessage, nil)
+}
+
+func (wc *WebsocketConnection) Read() ([]byte, error) {
 	_, p, err := wc.socket.ReadMessage()
 	return p, err
 }
 
-func (wc *WebsocketConnection) close(errCode string) {
+func (wc *WebsocketConnection) Close(errCode string) {
 	wc.socket.SetWriteDeadline(time.Now().Add(time.Second * 20))
 	wc.socket.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, errCode))
 	wc.socket.Close()

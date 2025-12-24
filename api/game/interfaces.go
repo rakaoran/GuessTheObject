@@ -1,6 +1,8 @@
 package game
 
 type NetworkSession interface {
-	close(errCode string)
-	send(data []byte) error
+	Close(errCode string)
+	Write(data []byte) error
+	Read() ([]byte, error)
+	Ping() error
 }
