@@ -34,7 +34,7 @@ func (mpr *MockPlayerRepo) GetPlayerByUsername(username string) (auth.Player, er
 type MockPasswordHasher struct{}
 
 func (mph *MockPasswordHasher) Hash(password string) string {
-	return "meow"
+	return "meow" + password + "meow"
 }
 
 func (mph *MockPasswordHasher) Compare(hash, password string) bool {
@@ -57,11 +57,11 @@ func (mtm *MockTokenManager) Verify(token string) (string, error) {
 		return "", auth.InvalidTokenError
 	}
 	hasher := MockPasswordHasher{}
-	if hasher.Hash(pts[0]+mtm.key) != pts[2] {
+	if hasher.Hash(pts[0]+mtm.key) != pts[1] {
 		return "", auth.InvalidTokenError
 	}
 
-	return pts[1], nil
+	return pts[0], nil
 }
 
 // Separated since maybe we can add 'display name' in SignUp only...
@@ -79,9 +79,13 @@ type LoginTestCase struct {
 	username      string
 	password      string
 	expectedError error
+	setup         func(repo *MockPlayerRepo)
 }
 
-func TestAuthService(t *testing.T) {
+func TestSignup(t *testing.T) {
+	passwordHasher := MockPasswordHasher{}
+	tokenManager := MockTokenManager{key: "potato"}
+	hash := passwordHasher.Hash
 
 	var signupTests = []SignupTestCase{
 		{
@@ -101,14 +105,14 @@ func TestAuthService(t *testing.T) {
 			username:      "oussama145",
 			password:      "12345678",
 			expectedError: auth.UsernameAlreadyExistsErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", "16449976413") },
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
 		},
 		{
 			description:   "dupplicate username with weak password",
 			username:      "oussama145",
 			password:      "12345",
 			expectedError: auth.WeakPasswordErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", "16449976413") },
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
 		},
 		{
 			description:   "short password",
@@ -164,8 +168,6 @@ func TestAuthService(t *testing.T) {
 		t.Run(tc.description, func(t *testing.T) {
 
 			playerRepo := MockPlayerRepo{}
-			passwordHasher := MockPasswordHasher{}
-			tokenManager := MockTokenManager{key: "potato"}
 
 			authService := auth.NewService(&playerRepo, &passwordHasher, &tokenManager)
 			if tc.setup != nil {
@@ -177,7 +179,93 @@ func TestAuthService(t *testing.T) {
 			assert.ErrorIs(t, tc.expectedError, err, tc.username, tc.password)
 
 			if err == nil {
-				assert.Equal(t, token, tokenManager.Generate(tc.username), "Asserting the service returns the correct token")
+				username, err := tokenManager.Verify(token)
+				assert.NoError(t, err, "Asserting the service returns the correct token")
+				assert.Equal(t, tc.username, username, "Asserting the service returns the correct token")
+			}
+		})
+
+	}
+}
+
+func TestLogin(t *testing.T) {
+	passwordHasher := MockPasswordHasher{}
+	tokenManager := MockTokenManager{key: "potato"}
+	hash := passwordHasher.Hash
+
+	var loginTests = []LoginTestCase{
+		{
+			description:   "no such user exists",
+			username:      "oussama145",
+			password:      "12345678",
+			expectedError: auth.UsernameNotFoundErr,
+		},
+		{
+			description:   "username bad symbols",
+			username:      "oussama145#$%!#$_two",
+			password:      "12345678ermtrmt",
+			expectedError: auth.UsernameNotFoundErr,
+		},
+		{
+			description:   "normal",
+			username:      "oussama145",
+			password:      "16449976413",
+			expectedError: nil,
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+		},
+		{
+			description:   "incorrect password",
+			username:      "oussama145",
+			password:      "12345iremtrem",
+			expectedError: auth.IncorrectPasswordErr,
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+		},
+		{
+			description:   "incorrect short password",
+			username:      "oussama145",
+			password:      "1234",
+			expectedError: auth.IncorrectPasswordErr,
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+		},
+		{
+			description:   "absent username",
+			username:      "",
+			password:      "12345678",
+			expectedError: auth.UsernameNotFoundErr,
+		},
+		{
+			description:   "absent password",
+			username:      "oussama145",
+			password:      "",
+			expectedError: auth.IncorrectPasswordErr,
+			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+		},
+		{
+			description:   "absent username and password",
+			username:      "",
+			password:      "",
+			expectedError: auth.UsernameNotFoundErr,
+		},
+	}
+
+	for _, tc := range loginTests {
+		t.Run(tc.description, func(t *testing.T) {
+
+			playerRepo := MockPlayerRepo{}
+
+			authService := auth.NewService(&playerRepo, &passwordHasher, &tokenManager)
+			if tc.setup != nil {
+				tc.setup(&playerRepo)
+			}
+
+			token, err := authService.Login(tc.username, tc.password)
+
+			assert.ErrorIs(t, tc.expectedError, err, "Username: %s, Password: %s, token: %s", tc.username, tc.password, token)
+
+			if err == nil {
+				username, err := tokenManager.Verify(token)
+				assert.NoError(t, err, "Asserting the service returns the correct token")
+				assert.Equal(t, tc.username, username, "Asserting the service returns the correct token")
 			}
 		})
 
