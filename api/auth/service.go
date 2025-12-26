@@ -5,14 +5,14 @@ import (
 	"unicode/utf8"
 )
 
-type service struct {
+type Service struct {
 	playerRepo     PlayerRepo
 	passwordHasher PasswordHasher
 	tokenManager   TokenManager
 }
 
-func NewService(playerRepo PlayerRepo, passwordHasher PasswordHasher, tokenManager TokenManager) *service {
-	return &service{playerRepo, passwordHasher, tokenManager}
+func NewService(playerRepo PlayerRepo, passwordHasher PasswordHasher, tokenManager TokenManager) *Service {
+	return &Service{playerRepo, passwordHasher, tokenManager}
 }
 
 func validateUsernameFormat(username string) bool {
@@ -20,7 +20,7 @@ func validateUsernameFormat(username string) bool {
 	return match
 }
 
-func (as *service) Signup(username, password string) (string, error) {
+func (as *Service) Signup(username, password string) (string, error) {
 	if !validateUsernameFormat(username) {
 		return "", InvalidUsernameFormatErr
 	}
@@ -44,7 +44,7 @@ func (as *service) Signup(username, password string) (string, error) {
 	return as.tokenManager.Generate(username), nil
 }
 
-func (as *service) Login(username, password string) (string, error) {
+func (as *Service) Login(username, password string) (string, error) {
 	player, err := as.playerRepo.GetPlayerByUsername(username)
 
 	if err != nil {
@@ -59,6 +59,6 @@ func (as *service) Login(username, password string) (string, error) {
 }
 
 // VerifyToken returns the username if the token is valid, else, it returns an error
-func (as *service) VerifyToken(token string) (string, error) {
+func (as *Service) VerifyToken(token string) (string, error) {
 	return as.tokenManager.Verify(token)
 }

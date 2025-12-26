@@ -95,6 +95,12 @@ func TestSignup(t *testing.T) {
 			expectedError: nil,
 		},
 		{
+			description:   "uppercase username",
+			username:      "Oussama145",
+			password:      "12345678",
+			expectedError: auth.InvalidUsernameFormatErr,
+		},
+		{
 			description:   "with underscore",
 			username:      "oussama145_two",
 			password:      "12345678ermtrmt",
