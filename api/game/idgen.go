@@ -8,7 +8,7 @@ type Idgen struct {
 	locker           sync.RWMutex
 }
 
-func (idgen *Idgen) GetId() {
+func (idgen *Idgen) GetPublicId() {
 	idgen.locker.Lock()
 
 }

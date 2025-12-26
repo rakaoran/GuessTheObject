@@ -1,6 +1,5 @@
-CREATE TABLE users(
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    username VARCHAR(15) UNIQUE NOT NULL,
+CREATE TABLE players(
+    username VARCHAR(15) PRIMARY KEY,
     password_hash TEXT,
     CONSTRAINT username_regex CHECK (username ~ '^[a-z0-9_]{3,20}$')
 );
