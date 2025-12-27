@@ -10,7 +10,7 @@ import (
 var (
 	ErrorMissingTokenJson          = gin.H{"error": "missing-token"}
 	ErrorInvalidTokenJson          = gin.H{"error": "invalid-token"}
-	ErrorInvalidRequestFormatJson  = gin.H{"error": "wrong-request-format"}
+	ErrorInvalidRequestFormatJson  = gin.H{"error": "bad-request-format"}
 	ErrorInvalidCredentialsJson    = gin.H{"error": "invalid-credentials"}
 	ErrorUnknownErrorJson          = gin.H{"error": "unknown-error"}
 	ErrorUsernameAlreadyExistsJson = gin.H{"error": "username-already-exists"}
@@ -35,12 +35,12 @@ func NewAuthHandler(service AuthService) *AuthHandler {
 func (ah *AuthHandler) RequireAuthMiddleware(ctx *gin.Context) {
 	token, err := ctx.Cookie("token")
 	if err != nil {
-		ctx.AbortWithStatusJSON(http.StatusForbidden, ErrorMissingTokenJson)
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, ErrorMissingTokenJson)
 		return
 	}
 	username, err := ah.authService.VerifyToken(token)
 	if err != nil {
-		ctx.AbortWithStatusJSON(http.StatusForbidden, ErrorInvalidTokenJson)
+		ctx.AbortWithStatusJSON(http.StatusUnauthorized, ErrorInvalidTokenJson)
 		return
 	}
 
@@ -77,7 +77,7 @@ func (ah *AuthHandler) LoginHandler(ctx *gin.Context) {
 
 	ctx.SetCookie("token", token, 60*60*24*365*40, "/", "", true, true)
 	ctx.SetSameSite(http.SameSiteNoneMode)
-	ctx.Status(http.StatusOK)
+	ctx.JSON(http.StatusOK, gin.H{})
 }
 
 func (ah *AuthHandler) SignupHandler(ctx *gin.Context) {
@@ -111,7 +111,7 @@ func (ah *AuthHandler) SignupHandler(ctx *gin.Context) {
 
 	ctx.SetCookie("token", token, 60*60*24*365*40, "/", "", true, true)
 	ctx.SetSameSite(http.SameSiteNoneMode)
-	ctx.Status(http.StatusOK)
+	ctx.JSON(http.StatusCreated, gin.H{})
 }
 
 func (ah *AuthHandler) LogoutHandler(ctx *gin.Context) {
