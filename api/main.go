@@ -2,9 +2,9 @@ package main
 
 import (
 	"api/auth"
-	"api/internal/crypto"
-	"api/internal/database"
-	"api/internal/handlers"
+	"api/crypto"
+	"api/database"
+	"context"
 	"log"
 	"net/http"
 	"os"
@@ -34,15 +34,15 @@ func main() {
 		log.Fatal("Missing jwt signing key")
 	}
 	// Dependencies
-	pgRepo, err := database.NewPostgresRepo(POSTGRES_URL)
+	pgRepo, err := database.NewPostgresRepo(context.Background(), POSTGRES_URL)
 	if err != nil {
 		log.Fatal(err)
 	}
 	passwordHasher := crypto.NewArgon2idHasher(3, 1024*64, 32, 16, 1)
-	tokenManager := crypto.NewJWTManager(JWT_KEY)
+	tokenManager := crypto.NewJWTManager(JWT_KEY, 60*60*24*7)
 
 	authService := auth.NewService(pgRepo, passwordHasher, tokenManager)
-	authHandler := handlers.NewAuthHandler(authService)
+	authHandler := auth.NewAuthHandler(authService)
 
 	r.Use(func(ctx *gin.Context) {
 		origin := ctx.Request.Header.Get("Origin")

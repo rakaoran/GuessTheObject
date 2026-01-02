@@ -1,5 +1,6 @@
 CREATE TABLE players(
-    username VARCHAR(15) PRIMARY KEY UNIQUE NOT NULL,
+    id UUID  PRIMARY KEY DEFAULT gen_random_uuid(),
+    username VARCHAR(15) UNIQUE NOT NULL,
     password_hash TEXT NOT NULL
 );
 

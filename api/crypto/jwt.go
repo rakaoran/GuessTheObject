@@ -1,7 +1,8 @@
 package crypto
 
 import (
-	"api/auth"
+	"api/domain"
+	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -10,51 +11,65 @@ import (
 // jwtCustomClaims is an unexported struct used for claims.
 // Fields must be exported for JSON serialization.
 type jwtCustomClaims struct {
-	Username string `json:"username"`
+	Id string `json:"id"`
 	jwt.RegisteredClaims
 }
 
 type JWTManager struct {
 	secretKey []byte
+	maxAge    int
 }
 
-func NewJWTManager(secretKey string) *JWTManager {
+func NewJWTManager(secretKey string, maxAge int) *JWTManager {
 	return &JWTManager{
 		secretKey: []byte(secretKey),
 	}
 }
 
-func (m *JWTManager) Generate(username string) string {
+func (m *JWTManager) Generate(id string, now time.Time) (string, error) {
 	claims := jwtCustomClaims{
-		Username: username,
+		Id: id,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(time.Now().AddDate(40, 0, 0)),
-			IssuedAt:  jwt.NewNumericDate(time.Now()),
+			ExpiresAt: jwt.NewNumericDate(now.Add(time.Second * time.Duration(m.maxAge))),
+			IssuedAt:  jwt.NewNumericDate(now),
 		},
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
-	signedToken, _ := token.SignedString(m.secretKey)
+	signedToken, err := token.SignedString(m.secretKey)
 
-	return signedToken
+	if err != nil {
+		// TODO
+	}
+
+	return signedToken, nil
 }
 
 func (m *JWTManager) Verify(tokenString string) (string, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtCustomClaims{}, func(token *jwt.Token) (any, error) {
 		// Validate the signing method is what we expect (HMAC)
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, auth.InvalidTokenError
+			return nil, domain.ErrInvalidSigningMethod
 		}
 		return m.secretKey, nil
 	})
 
 	if err != nil {
-		return "", auth.InvalidTokenError
+		switch {
+		case errors.Is(err, domain.ErrInvalidSigningMethod):
+			return "", err
+		case errors.Is(err, jwt.ErrTokenExpired):
+			return "", domain.ErrExpiredToken
+		case errors.Is(err, jwt.ErrSignatureInvalid):
+			return "", domain.ErrInvalidTokenSignature
+		default:
+			return "", domain.ErrCorruptedToken
+		}
 	}
 
 	if claims, ok := token.Claims.(*jwtCustomClaims); ok && token.Valid {
-		return claims.Username, nil
+		return claims.Id, nil
 	}
 
-	return "", auth.InvalidTokenError
+	return "", domain.ErrCorruptedToken
 }

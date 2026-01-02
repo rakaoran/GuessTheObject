@@ -2,278 +2,331 @@ package auth_test
 
 import (
 	"api/auth"
-	"strings"
+	"api/domain"
+	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 )
 
-type MockPlayerRepo struct {
-	players []*auth.Player
+type MockUserRepo struct {
+	users               []*domain.User
+	CreateUserFn        func(ctx context.Context, username string, passwordHash string) (string, error)
+	GetUserByUsernameFn func(ctx context.Context, username string) (domain.User, error)
+	GetUserByIdFn       func(ctx context.Context, id string) (domain.User, error)
 }
 
-func (mpr *MockPlayerRepo) CreatePlayer(username string, passwordHash string) error {
-	for _, p := range mpr.players {
-		if p.Username == username {
-			return auth.DuplicateUsernameRepoError
-		}
+func (mpr *MockUserRepo) CreateUser(ctx context.Context, username string, passwordHash string) (string, error) {
+	uuid, err := mpr.CreateUserFn(ctx, username, passwordHash)
+	if err != nil {
+		return uuid, err
 	}
-	mpr.players = append(mpr.players, &auth.Player{username, passwordHash})
-	return nil
+	mpr.users = append(mpr.users, &domain.User{Id: uuid, Username: username, PasswordHash: passwordHash})
+	return uuid, nil
 }
 
-func (mpr *MockPlayerRepo) GetPlayerByUsername(username string) (auth.Player, error) {
-	for _, p := range mpr.players {
-		if p.Username == username {
-			return *p, nil
-		}
-	}
-	return auth.Player{}, auth.PlayerNotFoundRepoError
+func (mpr *MockUserRepo) GetUserByUsername(ctx context.Context, username string) (domain.User, error) {
+	return mpr.GetUserByUsernameFn(ctx, username)
 }
 
-type MockPasswordHasher struct{}
-
-func (mph *MockPasswordHasher) Hash(password string) string {
-	return "meow" + password + "meow"
+func (mpr *MockUserRepo) GetUserById(ctx context.Context, id string) (domain.User, error) {
+	return mpr.GetUserByIdFn(ctx, id)
 }
 
-func (mph *MockPasswordHasher) Compare(hash, password string) bool {
-	hashedPassword := mph.Hash(password)
-	return hashedPassword == hash
+type MockPasswordHasher struct {
+	HashFn    func(password string) (string, error)
+	CompareFn func(hash, password string) (bool, error)
+}
+
+func (mph *MockPasswordHasher) Hash(password string) (string, error) {
+	return mph.HashFn(password)
+}
+
+func (mph *MockPasswordHasher) Compare(hash, password string) (bool, error) {
+	return mph.CompareFn(hash, password)
 }
 
 type MockTokenManager struct {
-	key string
+	GenerateFn func(id string, now time.Time) (string, error)
+	VerifyFn   func(token string) (string, error)
 }
 
-func (mtm *MockTokenManager) Generate(username string) string {
-	hasher := MockPasswordHasher{}
-	return username + "ß" + hasher.Hash(username+mtm.key)
+func (mtm *MockTokenManager) Generate(id string, now time.Time) (string, error) {
+	return mtm.GenerateFn(id, now)
 }
 
 func (mtm *MockTokenManager) Verify(token string) (string, error) {
-	pts := strings.Split(token, "ß")
-	if len(pts) != 2 {
-		return "", auth.InvalidTokenError
-	}
-	hasher := MockPasswordHasher{}
-	if hasher.Hash(pts[0]+mtm.key) != pts[1] {
-		return "", auth.InvalidTokenError
-	}
-
-	return pts[0], nil
+	return mtm.VerifyFn(token)
 }
-
-// Separated since maybe we can add 'display name' in SignUp only...
 
 type SignupTestCase struct {
-	description   string
-	username      string
-	password      string
-	expectedError error
-	setup         func(repo *MockPlayerRepo)
-}
-
-type LoginTestCase struct {
-	description   string
-	username      string
-	password      string
-	expectedError error
-	setup         func(repo *MockPlayerRepo)
+	description         string
+	username            string
+	password            string
+	expectedError       error
+	expectedCreatedUser *domain.User
+	expectedToken       string
+	CreateUserFn        func(ctx context.Context, username string, passwordHash string) (string, error)
+	HashFn              func(password string) (string, error)
+	GenerateFn          func(username string, now time.Time) (string, error)
 }
 
 func TestSignup(t *testing.T) {
-	passwordHasher := MockPasswordHasher{}
-	tokenManager := MockTokenManager{key: "potato"}
-	hash := passwordHasher.Hash
 
 	var signupTests = []SignupTestCase{
 		{
-			description:   "normal",
-			username:      "oussama145",
-			password:      "12345678",
-			expectedError: nil,
+			description:         "normal case",
+			username:            "oussama",
+			password:            "12345678",
+			expectedError:       nil,
+			expectedCreatedUser: &domain.User{Id: "111-111", Username: "oussama", PasswordHash: "1234567812345678"},
+			expectedToken:       "111-111.tokkken",
+			CreateUserFn:        func(ctx context.Context, username, passwordHash string) (string, error) { return "111-111", nil },
+			HashFn:              func(password string) (string, error) { return password + password, nil },
+			GenerateFn:          func(id string, now time.Time) (string, error) { return id + "." + "tokkken", nil },
+		},
+		{
+			description:         "normal case, but hashing func exploded",
+			username:            "oussama",
+			password:            "12345678",
+			expectedError:       domain.HashingError,
+			expectedCreatedUser: nil,
+			HashFn:              func(password string) (string, error) { return "", errors.New("argon2id bomb") },
+		},
+		{
+			description:         "normal case, user created, but token generator func exploded",
+			username:            "oussama",
+			password:            "12345678",
+			expectedError:       domain.TokenError,
+			expectedCreatedUser: &domain.User{Id: "111-111", Username: "oussama", PasswordHash: "1234567812345678"},
+			CreateUserFn:        func(ctx context.Context, username, passwordHash string) (string, error) { return "111-111", nil },
+			HashFn:              func(password string) (string, error) { return password + password, nil },
+			GenerateFn:          func(id string, now time.Time) (string, error) { return "", errors.New("internal entropy unavailable") },
 		},
 		{
 			description:   "uppercase username",
 			username:      "Oussama145",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
-			description:   "with underscore",
-			username:      "oussama145_two",
-			password:      "12345678ermtrmt",
-			expectedError: nil,
+			description:         "with underscore",
+			username:            "oussama145_two",
+			password:            "12345678ermtrmt",
+			expectedError:       nil,
+			expectedCreatedUser: &domain.User{Id: "111-111", Username: "oussama145_two", PasswordHash: "hash11"},
+			expectedToken:       "111-111.tokkken",
+			CreateUserFn:        func(ctx context.Context, username, passwordHash string) (string, error) { return "111-111", nil },
+			HashFn:              func(password string) (string, error) { return "hash11", nil },
+			GenerateFn:          func(id string, now time.Time) (string, error) { return id + "." + "tokkken", nil },
 		},
 		{
-			description:   "dupplicate username",
-			username:      "oussama145",
-			password:      "12345678",
-			expectedError: auth.UsernameAlreadyExistsErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
-		},
-		{
-			description:   "dupplicate username with weak password",
-			username:      "oussama145",
-			password:      "12345",
-			expectedError: auth.WeakPasswordErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+			description:         "dupplicate username",
+			username:            "oussama145",
+			password:            "12345678",
+			expectedError:       domain.ErrDuplicateUsername,
+			expectedCreatedUser: nil,
+			CreateUserFn: func(ctx context.Context, username, passwordHash string) (string, error) {
+				return "", domain.ErrDuplicateUsername
+			},
+			HashFn: func(password string) (string, error) { return "hash11", nil },
 		},
 		{
 			description:   "short password",
 			username:      "oussama",
 			password:      "1234567",
-			expectedError: auth.WeakPasswordErr,
+			expectedError: auth.ErrWeakPassword,
+		},
+		{
+			description:   "too long password",
+			username:      "oussama",
+			password:      "12345676444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444",
+			expectedError: auth.ErrPasswordTooLong,
 		},
 		{
 			description:   "username too short",
 			username:      "ou",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
 			description:   "username too long",
 			username:      "oussamaermtermtermtermtrtmermterm",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
 			description:   "username with space",
-			username:      "oussama_is the best",
+			username:      "oussama the best",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
 			description:   "username withweird symbols",
 			username:      "oussama-remt!#$@#$%^^&&*(()_++++====ß´í¯ß)",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
 			description:   "absent username",
 			username:      "",
 			password:      "12345678",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 		{
 			description:   "absent password",
 			username:      "oussama",
 			password:      "",
-			expectedError: auth.WeakPasswordErr,
+			expectedError: auth.ErrWeakPassword,
 		},
 		{
 			description:   "absent username and password",
 			username:      "",
 			password:      "",
-			expectedError: auth.InvalidUsernameFormatErr,
+			expectedError: auth.ErrInvalidUsernameFormat,
 		},
 	}
 
 	for _, tc := range signupTests {
+		passwordHasher := MockPasswordHasher{}
+		tokenManager := MockTokenManager{}
+		userRepo := MockUserRepo{}
+		userRepo.CreateUserFn = tc.CreateUserFn
+		tokenManager.GenerateFn = tc.GenerateFn
+		passwordHasher.HashFn = tc.HashFn
+		authService := auth.NewService(&userRepo, &passwordHasher, &tokenManager)
+
 		t.Run(tc.description, func(t *testing.T) {
+			ctx := context.Background()
+			username := tc.username
+			password := tc.password
+			token, err := authService.Signup(ctx, username, password)
 
-			playerRepo := MockPlayerRepo{}
+			assert.ErrorIs(t, err, tc.expectedError)
+			assert.Equal(t, tc.expectedToken, token, "Token issued and token expected mismatch")
 
-			authService := auth.NewService(&playerRepo, &passwordHasher, &tokenManager)
-			if tc.setup != nil {
-				tc.setup(&playerRepo)
-			}
+			if tc.expectedCreatedUser != nil {
+				player := userRepo.users[len(userRepo.users)-1]
+				assert.Equal(t, *tc.expectedCreatedUser, *player)
 
-			token, err := authService.Signup(tc.username, tc.password)
-
-			assert.ErrorIs(t, tc.expectedError, err, tc.username, tc.password)
-
-			if err == nil {
-				username, err := tokenManager.Verify(token)
-				assert.NoError(t, err, "Asserting the service returns the correct token")
-				assert.Equal(t, tc.username, username, "Asserting the service returns the correct token")
 			}
 		})
 
 	}
 }
 
-func TestLogin(t *testing.T) {
-	passwordHasher := MockPasswordHasher{}
-	tokenManager := MockTokenManager{key: "potato"}
-	hash := passwordHasher.Hash
+type LoginTestCase struct {
+	description         string
+	username            string
+	password            string
+	expectedError       error
+	expectedToken       string
+	GetUserByUsernameFn func(ctx context.Context, username string) (domain.User, error)
+	CompareFn           func(hash, password string) (bool, error)
+	GenerateFn          func(username string, now time.Time) (string, error)
+}
 
+func TestLogin(t *testing.T) {
 	var loginTests = []LoginTestCase{
 		{
-			description:   "no such user exists",
-			username:      "oussama145",
+			description:   "successful login",
+			username:      "oussama",
 			password:      "12345678",
-			expectedError: auth.UsernameNotFoundErr,
-		},
-		{
-			description:   "username bad symbols",
-			username:      "oussama145#$%!#$_two",
-			password:      "12345678ermtrmt",
-			expectedError: auth.UsernameNotFoundErr,
-		},
-		{
-			description:   "normal",
-			username:      "oussama145",
-			password:      "16449976413",
 			expectedError: nil,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+			expectedToken: "111.tokkken",
+			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
+				if username != "oussama" {
+					return domain.User{}, domain.ErrUsernameNotFound
+				}
+				return domain.User{Id: "111", Username: "oussama", PasswordHash: "1234567812345678"}, nil
+			},
+			CompareFn: func(hash, password string) (bool, error) {
+				return password+password == hash, nil
+			},
+			GenerateFn: func(id string, now time.Time) (string, error) {
+				return id + "." + "tokkken", nil
+			},
+		},
+		{
+			description:   "user not found",
+			username:      "ghost",
+			password:      "12345678",
+			expectedError: domain.ErrUsernameNotFound,
+			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
+				return domain.User{}, domain.ErrUsernameNotFound
+			},
 		},
 		{
 			description:   "incorrect password",
-			username:      "oussama145",
-			password:      "12345iremtrem",
-			expectedError: auth.IncorrectPasswordErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
+			username:      "oussama",
+			password:      "wrong_pass",
+			expectedError: auth.ErrIncorrectPassword,
+			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
+				if username != "oussama" {
+					return domain.User{}, domain.ErrUsernameNotFound
+				}
+				return domain.User{Id: "111", Username: "oussama", PasswordHash: "hashed_pw"}, nil
+			},
+			CompareFn: func(hash, password string) (bool, error) {
+				return false, nil
+			},
 		},
 		{
-			description:   "incorrect short password",
-			username:      "oussama145",
-			password:      "1234",
-			expectedError: auth.IncorrectPasswordErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
-		},
-		{
-			description:   "absent username",
-			username:      "",
+			description:   "password comparison fails (hashing error)",
+			username:      "oussama",
 			password:      "12345678",
-			expectedError: auth.UsernameNotFoundErr,
+			expectedError: domain.HashingError,
+			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
+				if username != "oussama" {
+					return domain.User{}, domain.ErrUsernameNotFound
+				}
+				return domain.User{Id: "111", Username: "oussama", PasswordHash: "hashed_pw"}, nil
+			},
+			CompareFn: func(hash, password string) (bool, error) {
+				return false, errors.New("argon2id mem allocation failure")
+			},
 		},
 		{
-			description:   "absent password",
-			username:      "oussama145",
-			password:      "",
-			expectedError: auth.IncorrectPasswordErr,
-			setup:         func(repo *MockPlayerRepo) { repo.CreatePlayer("oussama145", hash("16449976413")) },
-		},
-		{
-			description:   "absent username and password",
-			username:      "",
-			password:      "",
-			expectedError: auth.UsernameNotFoundErr,
+			description:   "token generation fails",
+			username:      "oussama_yaqdane",
+			password:      "12345678",
+			expectedError: domain.TokenError,
+			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
+				if username != "oussama_yaqdane" {
+					return domain.User{}, domain.ErrUsernameNotFound
+				}
+				return domain.User{Id: "111", Username: "oussama_yaqdane", PasswordHash: "1234567812345678"}, nil
+			},
+			CompareFn: func(hash, password string) (bool, error) {
+				return password+password == hash, nil
+			},
+			GenerateFn: func(id string, now time.Time) (string, error) {
+				return "", errors.New("jwt signing error")
+			},
 		},
 	}
 
 	for _, tc := range loginTests {
 		t.Run(tc.description, func(t *testing.T) {
+			passwordHasher := MockPasswordHasher{}
+			tokenManager := MockTokenManager{}
+			userRepo := MockUserRepo{}
 
-			playerRepo := MockPlayerRepo{}
+			userRepo.GetUserByUsernameFn = tc.GetUserByUsernameFn
+			passwordHasher.CompareFn = tc.CompareFn
+			tokenManager.GenerateFn = tc.GenerateFn
 
-			authService := auth.NewService(&playerRepo, &passwordHasher, &tokenManager)
-			if tc.setup != nil {
-				tc.setup(&playerRepo)
-			}
+			authService := auth.NewService(&userRepo, &passwordHasher, &tokenManager)
+			ctx := context.Background()
 
-			token, err := authService.Login(tc.username, tc.password)
+			token, err := authService.Login(ctx, tc.username, tc.password)
 
-			assert.ErrorIs(t, tc.expectedError, err, "Username: %s, Password: %s, token: %s", tc.username, tc.password, token)
+			assert.ErrorIs(t, err, tc.expectedError)
 
-			if err == nil {
-				username, err := tokenManager.Verify(token)
-				assert.NoError(t, err, "Asserting the service returns the correct token")
-				assert.Equal(t, tc.username, username, "Asserting the service returns the correct token")
-			}
+			assert.Equal(t, tc.expectedToken, token)
+
 		})
-
 	}
 }

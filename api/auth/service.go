@@ -1,18 +1,34 @@
 package auth
 
 import (
+	"api/domain"
+	"context"
+	"errors"
+	"fmt"
 	"regexp"
-	"unicode/utf8"
+	"time"
 )
 
-type Service struct {
-	playerRepo     PlayerRepo
+// Signup errors
+var (
+	ErrWeakPassword          = errors.New("weak-password")
+	ErrPasswordTooLong       = errors.New("weak-password")
+	ErrInvalidUsernameFormat = errors.New("invalid-username-format")
+)
+
+// Login errors
+var (
+	ErrIncorrectPassword = errors.New("incorrect-password")
+)
+
+type AuthService struct {
+	UserRepo       UserRepo
 	passwordHasher PasswordHasher
 	tokenManager   TokenManager
 }
 
-func NewService(playerRepo PlayerRepo, passwordHasher PasswordHasher, tokenManager TokenManager) *Service {
-	return &Service{playerRepo, passwordHasher, tokenManager}
+func NewService(userRepo UserRepo, passwordHasher PasswordHasher, tokenManager TokenManager) *AuthService {
+	return &AuthService{userRepo, passwordHasher, tokenManager}
 }
 
 func validateUsernameFormat(username string) bool {
@@ -20,45 +36,61 @@ func validateUsernameFormat(username string) bool {
 	return match
 }
 
-func (as *Service) Signup(username, password string) (string, error) {
+func (as *AuthService) Signup(ctx context.Context, username, password string) (string, error) {
 	if !validateUsernameFormat(username) {
-		return "", InvalidUsernameFormatErr
+		return "", ErrInvalidUsernameFormat
 	}
 
-	if utf8.RuneCountInString(password) < 8 {
-		return "", WeakPasswordErr
+	if len(password) < 8 {
+		return "", ErrWeakPassword
 	}
-	passwordHash := as.passwordHasher.Hash(password)
 
-	err := as.playerRepo.CreatePlayer(username, passwordHash)
+	if len(password) > 100 {
+		return "", ErrPasswordTooLong
+	}
 
+	passwordHash, err := as.passwordHasher.Hash(password)
 	if err != nil {
-		switch err {
-		case DuplicateUsernameRepoError:
-			return "", UsernameAlreadyExistsErr
-		default:
-			return "", UnknownErr
-		}
+		return "", fmt.Errorf("%w: %w", domain.HashingError, err)
 	}
 
-	return as.tokenManager.Generate(username), nil
+	id, err := as.UserRepo.CreateUser(ctx, username, passwordHash)
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", domain.DatabaseError, err)
+	}
+
+	token, err := as.tokenManager.Generate(id, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", domain.TokenError, err)
+	}
+
+	return token, nil
 }
 
-func (as *Service) Login(username, password string) (string, error) {
-	player, err := as.playerRepo.GetPlayerByUsername(username)
+func (as *AuthService) Login(ctx context.Context, username, password string) (string, error) {
+	player, err := as.UserRepo.GetUserByUsername(ctx, username)
 
 	if err != nil {
-		return "", UsernameNotFoundErr
+		return "", fmt.Errorf("%w: %w", domain.DatabaseError, err)
 	}
 
-	if !as.passwordHasher.Compare(player.PasswordHash, password) {
-		return "", IncorrectPasswordErr
+	match, err := as.passwordHasher.Compare(player.PasswordHash, password)
+
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", domain.HashingError, err)
 	}
 
-	return as.tokenManager.Generate(player.Username), nil
+	if !match {
+		return "", ErrIncorrectPassword
+	}
+	token, err := as.tokenManager.Generate(player.Id, time.Now())
+	if err != nil {
+		return "", fmt.Errorf("%w: %w", domain.TokenError, err)
+	}
+	return token, nil
 }
 
-// VerifyToken returns the username if the token is valid, else, it returns an error
-func (as *Service) VerifyToken(token string) (string, error) {
+// VerifyToken returns the id if the token is valid, else, it returns an error
+func (as *AuthService) VerifyToken(token string) (string, error) {
 	return as.tokenManager.Verify(token)
 }

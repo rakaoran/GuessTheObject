@@ -23,13 +23,19 @@ func NewArgon2idHasher(time, memory, keyLength, saltLength uint32, parallelism u
 	}
 }
 
-func (h *Argon2idHasher) Hash(password string) string {
-	hash, _ := argon2id.CreateHash(password, h.params)
-	return hash
+func (h *Argon2idHasher) Hash(password string) (string, error) {
+	hash, err := argon2id.CreateHash(password, h.params)
+	if err != nil {
+		// TODO
+	}
+	return hash, nil
 }
 
 // Compare verifies a password against a hash.
-func (h *Argon2idHasher) Compare(hash, password string) bool {
-	match, _ := argon2id.ComparePasswordAndHash(password, hash)
-	return match
+func (h *Argon2idHasher) Compare(hash, password string) (bool, error) {
+	match, err := argon2id.ComparePasswordAndHash(password, hash)
+	if err != nil {
+		// TODO
+	}
+	return match, nil
 }
