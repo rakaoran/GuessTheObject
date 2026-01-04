@@ -75,6 +75,8 @@ type SignupTestCase struct {
 
 func TestSignup(t *testing.T) {
 
+	exampleErr := errors.New("example")
+
 	var signupTests = []SignupTestCase{
 		{
 			description:         "normal case",
@@ -91,19 +93,23 @@ func TestSignup(t *testing.T) {
 			description:         "normal case, but hashing func exploded",
 			username:            "oussama",
 			password:            "12345678",
-			expectedError:       domain.HashingError,
+			expectedError:       domain.UnexpectedPasswordHashingError,
 			expectedCreatedUser: nil,
-			HashFn:              func(password string) (string, error) { return "", errors.New("argon2id bomb") },
+			HashFn: func(password string) (string, error) {
+				return "", errors.Join(domain.UnexpectedPasswordHashingError, exampleErr)
+			},
 		},
 		{
 			description:         "normal case, user created, but token generator func exploded",
 			username:            "oussama",
 			password:            "12345678",
-			expectedError:       domain.TokenError,
+			expectedError:       domain.UnexpectedTokenGenerationError,
 			expectedCreatedUser: &domain.User{Id: "111-111", Username: "oussama", PasswordHash: "1234567812345678"},
 			CreateUserFn:        func(ctx context.Context, username, passwordHash string) (string, error) { return "111-111", nil },
 			HashFn:              func(password string) (string, error) { return password + password, nil },
-			GenerateFn:          func(id string, now time.Time) (string, error) { return "", errors.New("internal entropy unavailable") },
+			GenerateFn: func(id string, now time.Time) (string, error) {
+				return "", errors.Join(domain.UnexpectedTokenGenerationError, exampleErr)
+			},
 		},
 		{
 			description:   "uppercase username",
@@ -148,6 +154,18 @@ func TestSignup(t *testing.T) {
 		{
 			description:   "username too short",
 			username:      "ou",
+			password:      "12345678",
+			expectedError: auth.ErrInvalidUsernameFormat,
+		},
+		{
+			description:   "username with new lines",
+			username:      "ohsktu\nyohoo\n",
+			password:      "12345678",
+			expectedError: auth.ErrInvalidUsernameFormat,
+		},
+		{
+			description:   "username with new lines and weird stuff",
+			username:      "oeermtu\nyohoo\nretemr3$#%",
 			password:      "12345678",
 			expectedError: auth.ErrInvalidUsernameFormat,
 		},
@@ -229,6 +247,9 @@ type LoginTestCase struct {
 }
 
 func TestLogin(t *testing.T) {
+
+	exampleErr := errors.New("example")
+
 	var loginTests = []LoginTestCase{
 		{
 			description:   "successful login",
@@ -238,7 +259,7 @@ func TestLogin(t *testing.T) {
 			expectedToken: "111.tokkken",
 			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
 				if username != "oussama" {
-					return domain.User{}, domain.ErrUsernameNotFound
+					return domain.User{}, domain.ErrUserNotFound
 				}
 				return domain.User{Id: "111", Username: "oussama", PasswordHash: "1234567812345678"}, nil
 			},
@@ -253,9 +274,9 @@ func TestLogin(t *testing.T) {
 			description:   "user not found",
 			username:      "ghost",
 			password:      "12345678",
-			expectedError: domain.ErrUsernameNotFound,
+			expectedError: domain.ErrUserNotFound,
 			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
-				return domain.User{}, domain.ErrUsernameNotFound
+				return domain.User{}, domain.ErrUserNotFound
 			},
 		},
 		{
@@ -265,7 +286,7 @@ func TestLogin(t *testing.T) {
 			expectedError: auth.ErrIncorrectPassword,
 			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
 				if username != "oussama" {
-					return domain.User{}, domain.ErrUsernameNotFound
+					return domain.User{}, domain.ErrUserNotFound
 				}
 				return domain.User{Id: "111", Username: "oussama", PasswordHash: "hashed_pw"}, nil
 			},
@@ -277,25 +298,25 @@ func TestLogin(t *testing.T) {
 			description:   "password comparison fails (hashing error)",
 			username:      "oussama",
 			password:      "12345678",
-			expectedError: domain.HashingError,
+			expectedError: domain.UnexpectedPasswordHashingError,
 			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
 				if username != "oussama" {
-					return domain.User{}, domain.ErrUsernameNotFound
+					return domain.User{}, domain.ErrUserNotFound
 				}
 				return domain.User{Id: "111", Username: "oussama", PasswordHash: "hashed_pw"}, nil
 			},
 			CompareFn: func(hash, password string) (bool, error) {
-				return false, errors.New("argon2id mem allocation failure")
+				return false, errors.Join(domain.UnexpectedPasswordHashingError, exampleErr)
 			},
 		},
 		{
 			description:   "token generation fails",
 			username:      "oussama_yaqdane",
 			password:      "12345678",
-			expectedError: domain.TokenError,
+			expectedError: domain.UnexpectedTokenGenerationError,
 			GetUserByUsernameFn: func(ctx context.Context, username string) (domain.User, error) {
 				if username != "oussama_yaqdane" {
-					return domain.User{}, domain.ErrUsernameNotFound
+					return domain.User{}, domain.ErrUserNotFound
 				}
 				return domain.User{Id: "111", Username: "oussama_yaqdane", PasswordHash: "1234567812345678"}, nil
 			},
@@ -303,7 +324,7 @@ func TestLogin(t *testing.T) {
 				return password+password == hash, nil
 			},
 			GenerateFn: func(id string, now time.Time) (string, error) {
-				return "", errors.New("jwt signing error")
+				return "", errors.Join(domain.UnexpectedTokenGenerationError, exampleErr)
 			},
 		},
 	}

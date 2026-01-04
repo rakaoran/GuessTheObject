@@ -6,6 +6,13 @@ import (
 	"time"
 )
 
+type AuthService interface {
+	Signup(ctx context.Context, username, password string) (string, error)
+	Login(ctx context.Context, username, password string) (string, error)
+	VerifyToken(token string) (string, error)
+	GenerateToken(id string) (string, error)
+}
+
 type UserRepo interface {
 	CreateUser(ctx context.Context, username string, passwordHash string) (string, error)
 	GetUserByUsername(ctx context.Context, username string) (domain.User, error)

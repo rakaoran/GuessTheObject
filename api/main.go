@@ -42,7 +42,7 @@ func main() {
 	tokenManager := crypto.NewJWTManager(JWT_KEY, 60*60*24*7)
 
 	authService := auth.NewService(pgRepo, passwordHasher, tokenManager)
-	authHandler := auth.NewAuthHandler(authService)
+	authHandler := auth.NewAuthHandler(authService, 60*60*24*7)
 
 	r.Use(func(ctx *gin.Context) {
 		origin := ctx.Request.Header.Get("Origin")

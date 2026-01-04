@@ -1,6 +1,9 @@
 package crypto
 
 import (
+	"api/domain"
+	"fmt"
+
 	"github.com/alexedwards/argon2id"
 )
 
@@ -10,7 +13,7 @@ type Argon2idHasher struct {
 
 // NewArgon2idHasher creates a new hasher with the specified difficulty parameters.
 //
-// memory must be provided in Kilobytes (KB).
+// Memory must be provided in Kilobytes (KB).
 func NewArgon2idHasher(time, memory, keyLength, saltLength uint32, parallelism uint8) *Argon2idHasher {
 	return &Argon2idHasher{
 		params: &argon2id.Params{
@@ -26,7 +29,7 @@ func NewArgon2idHasher(time, memory, keyLength, saltLength uint32, parallelism u
 func (h *Argon2idHasher) Hash(password string) (string, error) {
 	hash, err := argon2id.CreateHash(password, h.params)
 	if err != nil {
-		// TODO
+		return "", fmt.Errorf("%w: %w", domain.UnexpectedPasswordHashComparisonError, err)
 	}
 	return hash, nil
 }
@@ -35,7 +38,7 @@ func (h *Argon2idHasher) Hash(password string) (string, error) {
 func (h *Argon2idHasher) Compare(hash, password string) (bool, error) {
 	match, err := argon2id.ComparePasswordAndHash(password, hash)
 	if err != nil {
-		// TODO
+		return false, fmt.Errorf("%w: %w", domain.UnexpectedPasswordHashComparisonError, err)
 	}
 	return match, nil
 }

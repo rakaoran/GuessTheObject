@@ -2,18 +2,20 @@ package domain
 
 import "errors"
 
+var UnexpectedDatabaseError = errors.New("unexpected-database-error")
+var UnexpectedPasswordHashingError = errors.New("unexpected-password-hashing-error")
+var UnexpectedPasswordHashComparisonError = errors.New("unexpected-password-comparison-error")
+var UnexpectedTokenGenerationError = errors.New("unexpected-token-generation-error")
+var UnexpectedTokenVerificationError = errors.New("unexpected-token-generation-error")
+
 var (
-	DatabaseError        = errors.New("database-error")
 	ErrDuplicateUsername = errors.New("duplicate-username")
-	ErrUsernameNotFound  = errors.New("username-not-found")
+	ErrUserNotFound      = errors.New("user-not-found")
 	ErrIdNotFound        = errors.New("id-not-found")
 )
 
-var HashingError = errors.New("hashing-error")
-
 var (
-	TokenError               = errors.New("token-error")
-	ErrInvalidSigningMethod  = errors.New("invalid-signing-method")
+	ErrInvalidSigningAlg     = errors.New("invalid-signing-algorithm")
 	ErrExpiredToken          = errors.New("expired-token")
 	ErrInvalidTokenSignature = errors.New("invalid-token-signature")
 	ErrCorruptedToken        = errors.New("corrupted-token")

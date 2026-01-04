@@ -3,6 +3,7 @@ package crypto
 import (
 	"api/domain"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -17,12 +18,13 @@ type jwtCustomClaims struct {
 
 type JWTManager struct {
 	secretKey []byte
-	maxAge    int
+	maxAge    time.Duration
 }
 
-func NewJWTManager(secretKey string, maxAge int) *JWTManager {
+func NewJWTManager(secretKey string, maxAge time.Duration) *JWTManager {
 	return &JWTManager{
 		secretKey: []byte(secretKey),
+		maxAge:    maxAge,
 	}
 }
 
@@ -30,8 +32,7 @@ func (m *JWTManager) Generate(id string, now time.Time) (string, error) {
 	claims := jwtCustomClaims{
 		Id: id,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(time.Second * time.Duration(m.maxAge))),
-			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(m.maxAge)),
 		},
 	}
 
@@ -39,7 +40,7 @@ func (m *JWTManager) Generate(id string, now time.Time) (string, error) {
 	signedToken, err := token.SignedString(m.secretKey)
 
 	if err != nil {
-		// TODO
+		return "", nil
 	}
 
 	return signedToken, nil
@@ -49,21 +50,23 @@ func (m *JWTManager) Verify(tokenString string) (string, error) {
 	token, err := jwt.ParseWithClaims(tokenString, &jwtCustomClaims{}, func(token *jwt.Token) (any, error) {
 		// Validate the signing method is what we expect (HMAC)
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
-			return nil, domain.ErrInvalidSigningMethod
+			return nil, domain.ErrInvalidSigningAlg
 		}
 		return m.secretKey, nil
 	})
 
 	if err != nil {
 		switch {
-		case errors.Is(err, domain.ErrInvalidSigningMethod):
+		case errors.Is(err, domain.ErrInvalidSigningAlg):
 			return "", err
 		case errors.Is(err, jwt.ErrTokenExpired):
 			return "", domain.ErrExpiredToken
 		case errors.Is(err, jwt.ErrSignatureInvalid):
 			return "", domain.ErrInvalidTokenSignature
-		default:
+		case errors.Is(err, jwt.ErrTokenMalformed):
 			return "", domain.ErrCorruptedToken
+		default:
+			return "", fmt.Errorf("%w: %w", domain.UnexpectedTokenVerificationError, err)
 		}
 	}
 
