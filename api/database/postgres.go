@@ -45,11 +45,11 @@ func (pgur *PostgresPlayerRepo) GetUserByUsername(ctx context.Context, username 
 }
 
 func (pgur *PostgresPlayerRepo) GetUserById(ctx context.Context, id string) (domain.User, error) {
-	user := domain.User{Username: id}
+	user := domain.User{Id: id}
 
 	row := pgur.pool.QueryRow(ctx, "SELECT username, password_hash FROM users WHERE id = $1", id)
 
-	err := row.Scan(&user.PasswordHash)
+	err := row.Scan(&user.Username, &user.PasswordHash)
 
 	if err != nil {
 		switch {

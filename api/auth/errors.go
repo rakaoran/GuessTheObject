@@ -5,7 +5,7 @@ import "errors"
 // Signup errors
 var (
 	ErrWeakPassword          = errors.New("weak-password")
-	ErrPasswordTooLong       = errors.New("weak-password")
+	ErrPasswordTooLong       = errors.New("password-too-long")
 	ErrInvalidUsernameFormat = errors.New("invalid-username-format")
 )
 

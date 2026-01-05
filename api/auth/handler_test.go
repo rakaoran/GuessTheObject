@@ -44,6 +44,7 @@ func (m *MockAuthService) GenerateToken(id string) (string, error) {
 // the signup service, and doesn't somehow create a user with username:pass1234 and password: oussama
 // Other tests like http codes and errors returned shall be tested not here
 func TestVariablePassingSignupHandler(t *testing.T) {
+	t.Parallel()
 	authService := MockAuthService{}
 	var passedContext context.Context
 	authService.SignupFunc = func(ctx context.Context, username, password string) (string, error) {
@@ -71,6 +72,7 @@ func TestVariablePassingSignupHandler(t *testing.T) {
 }
 
 func TestErrorHandlingOfSignupHandler(t *testing.T) {
+	t.Parallel()
 	type SignupTestCase struct {
 		description   string
 		signupFunc    func(context.Context, string, string) (string, error)
@@ -105,6 +107,14 @@ func TestErrorHandlingOfSignupHandler(t *testing.T) {
 			body:          `{}`,
 			expectedCode:  http.StatusBadRequest,
 			expectedBody:  auth.ErrWeakPasswordStr,
+			expectedToken: "",
+		},
+		{
+			description:   "too long password",
+			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", auth.ErrPasswordTooLong },
+			body:          `{}`,
+			expectedCode:  http.StatusBadRequest,
+			expectedBody:  auth.ErrPasswordTooLongStr,
 			expectedToken: "",
 		},
 		{
@@ -211,6 +221,7 @@ func TestErrorHandlingOfSignupHandler(t *testing.T) {
 
 // Same reasoning as for TestVariablePassingSignupHandler
 func TestVariablePassingLoginHandler(t *testing.T) {
+	t.Parallel()
 	authService := MockAuthService{}
 	var passedContext context.Context
 
@@ -240,6 +251,7 @@ func TestVariablePassingLoginHandler(t *testing.T) {
 }
 
 func TestErrorHandlingOfLoginHandler(t *testing.T) {
+	t.Parallel()
 	type LoginTestCase struct {
 		description   string
 		loginFunc     func(context.Context, string, string) (string, error)
@@ -374,6 +386,7 @@ func TestErrorHandlingOfLoginHandler(t *testing.T) {
 }
 
 func TestLogoutHandler(t *testing.T) {
+	t.Parallel()
 	authService := &MockAuthService{}
 	authHandler := auth.NewAuthHandler(authService, 4)
 	server := gin.New()
@@ -392,6 +405,7 @@ func TestLogoutHandler(t *testing.T) {
 }
 
 func TestRequireAuthMiddleware(t *testing.T) {
+	t.Parallel()
 	authService := &MockAuthService{}
 	authHandler := auth.NewAuthHandler(authService, 15)
 	server := gin.New()

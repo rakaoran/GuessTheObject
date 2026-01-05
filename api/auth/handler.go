@@ -19,6 +19,7 @@ var (
 	ErrUnknownStr               = "unknown-error"
 	ErrUsernameAlreadyExistsStr = "username-already-exists"
 	ErrWeakPasswordStr          = "weak-password"
+	ErrPasswordTooLongStr       = "password-too-long"
 	ErrInvalidUsernameFormatStr = "invalid-username-format"
 	ErrAccountCreatedButNoToken = "account-created-but-no-token"
 )
@@ -140,8 +141,11 @@ func (ah *authHandler) SignupHandler(ctx *gin.Context) {
 		case errors.Is(err, domain.ErrDuplicateUsername):
 			ctx.String(http.StatusConflict, ErrUsernameAlreadyExistsStr)
 
-		case errors.Is(err, ErrWeakPassword), errors.Is(err, ErrPasswordTooLong):
+		case errors.Is(err, ErrWeakPassword):
 			ctx.String(http.StatusBadRequest, ErrWeakPasswordStr)
+
+		case errors.Is(err, ErrPasswordTooLong):
+			ctx.String(http.StatusBadRequest, ErrPasswordTooLongStr)
 
 		case errors.Is(err, ErrInvalidUsernameFormat):
 			ctx.String(http.StatusBadRequest, ErrInvalidUsernameFormatStr)
@@ -183,7 +187,7 @@ func (ah *authHandler) RefreshSessionHandler(ctx *gin.Context) {
 
 	id, err := ah.authService.VerifyToken(token)
 	if err != nil {
-		ctx.String(http.StatusUnauthorized, "unauthenticated")
+		ctx.String(http.StatusUnauthorized, "bad-token")
 		return
 	}
 

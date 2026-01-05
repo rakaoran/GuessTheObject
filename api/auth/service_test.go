@@ -74,7 +74,7 @@ type SignupTestCase struct {
 }
 
 func TestSignup(t *testing.T) {
-
+	t.Parallel()
 	exampleErr := errors.New("example")
 
 	var signupTests = []SignupTestCase{
@@ -247,7 +247,7 @@ type LoginTestCase struct {
 }
 
 func TestLogin(t *testing.T) {
-
+	t.Parallel()
 	exampleErr := errors.New("example")
 
 	var loginTests = []LoginTestCase{
