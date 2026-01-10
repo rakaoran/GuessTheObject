@@ -4,9 +4,9 @@ import "errors"
 
 var UnexpectedDatabaseError = errors.New("unexpected-database-error")
 var UnexpectedPasswordHashingError = errors.New("unexpected-password-hashing-error")
-var UnexpectedPasswordHashComparisonError = errors.New("unexpected-password-comparison-error")
+var UnexpectedPasswordHashComparisonError = errors.New("unexpected-password-hash-comparison-error")
 var UnexpectedTokenGenerationError = errors.New("unexpected-token-generation-error")
-var UnexpectedTokenVerificationError = errors.New("unexpected-token-generation-error")
+var UnexpectedTokenVerificationError = errors.New("unexpected-token-verification-error")
 
 var (
 	ErrDuplicateUsername = errors.New("duplicate-username")
