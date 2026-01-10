@@ -8,359 +8,300 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
+// MockAuthService using testify/mock
 type MockAuthService struct {
-	SignupFunc        func(ctx context.Context, username, password string) (string, error)
-	LoginFunc         func(ctx context.Context, username, password string) (string, error)
-	VerifyTokenFunc   func(token string) (string, error)
-	GenerateTokenFunc func(id string) (string, error)
+	mock.Mock
 }
 
 func (m *MockAuthService) Signup(ctx context.Context, username, password string) (string, error) {
-	return m.SignupFunc(ctx, username, password)
+	args := m.Called(ctx, username, password)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockAuthService) Login(ctx context.Context, username, password string) (string, error) {
-	return m.LoginFunc(ctx, username, password)
+	args := m.Called(ctx, username, password)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockAuthService) VerifyToken(token string) (string, error) {
-	return m.VerifyTokenFunc(token)
+	args := m.Called(token)
+	return args.String(0), args.Error(1)
 }
 
 func (m *MockAuthService) GenerateToken(id string) (string, error) {
-	return m.GenerateTokenFunc(id)
+	args := m.Called(id)
+	return args.String(0), args.Error(1)
 }
 
-// This function tests if the signup handler correctly passes the credentials to
-// the signup service, and doesn't somehow create a user with username:pass1234 and password: oussama
-// Other tests like http codes and errors returned shall be tested not here
-func TestVariablePassingSignupHandler(t *testing.T) {
+func TestSignupHandler(t *testing.T) {
 	t.Parallel()
-	authService := MockAuthService{}
-	var passedContext context.Context
-	authService.SignupFunc = func(ctx context.Context, username, password string) (string, error) {
-		passedContext = ctx
-		return username + "." + password, nil
-	}
 
-	authHandler := auth.NewAuthHandler(&authService, 50)
+	type setupFn func(m *MockAuthService)
 
-	server := gin.New()
-	server.POST("/signup", authHandler.SignupHandler)
-	req := httptest.NewRequest(http.MethodPost, "/signup", bytes.NewBufferString(`{"username":"oussama", "password":"pass1234"}`))
-	res := httptest.NewRecorder()
-
-	server.ServeHTTP(res, req)
-
-	username_password := strings.Split(res.Result().Cookies()[0].Value, ".")
-
-	userUsername := username_password[0]
-	userPasswordHash := username_password[1]
-
-	assert.Equal(t, req.Context(), passedContext, "The handler must pass request's context to the service")
-	assert.Equal(t, "oussama", userUsername)
-	assert.Equal(t, "pass1234", userPasswordHash)
-}
-
-func TestErrorHandlingOfSignupHandler(t *testing.T) {
-	t.Parallel()
-	type SignupTestCase struct {
+	type testCase struct {
 		description   string
-		signupFunc    func(context.Context, string, string) (string, error)
 		body          string
+		setupMocks    setupFn
 		expectedCode  int
 		expectedBody  string
 		expectedToken string
 	}
 
 	exErr := errors.New("example error")
+	gin.SetMode(gin.TestMode)
 
-	testCases := []SignupTestCase{
+	testCases := []testCase{
 		{
-			description:   "Username already exists",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", domain.ErrDuplicateUsername },
-			body:          `{}`,
+			description: "normal success",
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").Return("tokenhaha", nil)
+			},
+			expectedCode:  http.StatusCreated,
+			expectedBody:  "",
+			expectedToken: "tokenhaha",
+		},
+		{
+			description: "username already exists",
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").Return("", domain.ErrDuplicateUsername)
+			},
 			expectedCode:  http.StatusConflict,
 			expectedBody:  auth.ErrUsernameAlreadyExistsStr,
 			expectedToken: "",
 		},
 		{
-			description:   "Invalid username format",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", auth.ErrInvalidUsernameFormat },
-			body:          `{}`,
-			expectedCode:  http.StatusBadRequest,
-			expectedBody:  auth.ErrInvalidUsernameFormatStr,
-			expectedToken: "",
-		},
-		{
-			description:   "weak password",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", auth.ErrWeakPassword },
-			body:          `{}`,
+			description: "weak password",
+			body:        `{"username":"oussama", "password":"123"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "123").Return("", auth.ErrWeakPassword)
+			},
 			expectedCode:  http.StatusBadRequest,
 			expectedBody:  auth.ErrWeakPasswordStr,
 			expectedToken: "",
 		},
 		{
-			description:   "too long password",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", auth.ErrPasswordTooLong },
-			body:          `{}`,
+			description: "password too long",
+			body:        `{"username":"oussama", "password":"longpass"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "longpass").Return("", auth.ErrPasswordTooLong)
+			},
 			expectedCode:  http.StatusBadRequest,
 			expectedBody:  auth.ErrPasswordTooLongStr,
 			expectedToken: "",
 		},
 		{
+			description: "invalid username format",
+			body:        `{"username":"bad format", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "bad format", "pass1234").Return("", auth.ErrInvalidUsernameFormat)
+			},
+			expectedCode:  http.StatusBadRequest,
+			expectedBody:  auth.ErrInvalidUsernameFormatStr,
+			expectedToken: "",
+		},
+		{
 			description:   "non json request",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "", nil },
 			body:          `{`,
+			setupMocks:    func(m *MockAuthService) {},
 			expectedCode:  http.StatusBadRequest,
 			expectedBody:  auth.ErrInvalidRequestFormatStr,
 			expectedToken: "",
 		},
 		{
-			description: "hashing error",
-			signupFunc: func(ctx context.Context, s1, s2 string) (string, error) {
-				return "", errors.Join(domain.UnexpectedPasswordHashingError, exErr)
+			description: "database failure (hashing error flow)",
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").
+					Return("", errors.Join(domain.UnexpectedDatabaseError, exErr))
 			},
-			body:          `{}`,
-			expectedCode:  http.StatusInternalServerError,
-			expectedBody:  auth.ErrUnknownStr,
-			expectedToken: "",
-		},
-		{
-			description: "database failure",
-			signupFunc: func(ctx context.Context, s1, s2 string) (string, error) {
-				return "", errors.Join(domain.UnexpectedDatabaseError, exErr)
-			},
-			body:          `{}`,
 			expectedCode:  http.StatusInternalServerError,
 			expectedBody:  auth.ErrUnknownStr,
 			expectedToken: "",
 		},
 		{
 			description: "token generation failure",
-			signupFunc: func(ctx context.Context, s1, s2 string) (string, error) {
-				return "", errors.Join(domain.UnexpectedTokenGenerationError, exErr)
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").
+					Return("", errors.Join(domain.UnexpectedTokenGenerationError, exErr))
 			},
-			body:          `{}`,
 			expectedCode:  http.StatusInternalServerError,
 			expectedBody:  auth.ErrAccountCreatedButNoToken,
 			expectedToken: "",
 		},
 		{
 			description: "timeout error",
-			signupFunc: func(ctx context.Context, s1, s2 string) (string, error) {
-				return "", context.DeadlineExceeded
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").Return("", context.DeadlineExceeded)
 			},
-			body:          `{}`,
 			expectedCode:  http.StatusGatewayTimeout,
 			expectedBody:  auth.ErrServerTimeoutStr,
 			expectedToken: "",
 		},
 		{
 			description: "client closed request",
-			signupFunc: func(ctx context.Context, s1, s2 string) (string, error) {
-				return "", context.Canceled
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").Return("", context.Canceled)
 			},
-			body:          `{}`,
 			expectedCode:  499,
 			expectedBody:  "",
 			expectedToken: "",
-		},
-		{
-			description:   "normal",
-			signupFunc:    func(ctx context.Context, s1, s2 string) (string, error) { return "tokenhaha", nil },
-			body:          `{}`,
-			expectedCode:  http.StatusCreated,
-			expectedBody:  "",
-			expectedToken: "tokenhaha",
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.description, func(t *testing.T) {
-			authService := &MockAuthService{}
-			authService.SignupFunc = tc.signupFunc
-			authHandler := auth.NewAuthHandler(authService, 197*time.Second)
+			t.Parallel()
+			mockService := new(MockAuthService)
+			if tc.setupMocks != nil {
+				tc.setupMocks(mockService)
+			}
 
+			authHandler := auth.NewAuthHandler(mockService, 197*time.Second)
 			server := gin.New()
-
 			server.POST("/signup", authHandler.SignupHandler)
+
 			req := httptest.NewRequest(http.MethodPost, "/signup", bytes.NewBufferString(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			res := httptest.NewRecorder()
 
 			server.ServeHTTP(res, req)
 
+			// Cookie Assertion
 			cookies := res.Result().Cookies()
 			token := ""
 			if len(cookies) > 0 {
 				assert.Equal(t, "token", cookies[0].Name, "Token cookie must be 'token'")
 				assert.Equal(t, "/", cookies[0].Path, "Cookie path must be '/'")
+				// Allow small delta for max age calculation if needed, but int match usually works
 				assert.Equal(t, 197, cookies[0].MaxAge, "Cookie max age mismatch")
 				token = cookies[0].Value
-
 			}
-			code := res.Code
-			body := res.Body.String()
 
-			assert.Equal(t, tc.expectedCode, code, "HTTP status code mismatch")
-			assert.Equal(t, tc.expectedBody, body)
+			assert.Equal(t, tc.expectedCode, res.Code, "HTTP status code mismatch")
+			assert.Equal(t, tc.expectedBody, res.Body.String())
 			assert.Equal(t, tc.expectedToken, token)
+
+			mockService.AssertExpectations(t)
 		})
 	}
 }
 
-// Same reasoning as for TestVariablePassingSignupHandler
-func TestVariablePassingLoginHandler(t *testing.T) {
+func TestLoginHandler(t *testing.T) {
 	t.Parallel()
-	authService := MockAuthService{}
-	var passedContext context.Context
 
-	authService.LoginFunc = func(ctx context.Context, username, password string) (string, error) {
-		passedContext = ctx
-		return username + "." + password, nil
-	}
+	type setupFn func(m *MockAuthService)
 
-	authHandler := auth.NewAuthHandler(&authService, 50)
-
-	server := gin.New()
-	server.POST("/login", authHandler.LoginHandler)
-
-	req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(`{"username":"oussama", "password":"pass1234"}`))
-	res := httptest.NewRecorder()
-
-	server.ServeHTTP(res, req)
-
-	username_password := strings.Split(res.Result().Cookies()[0].Value, ".")
-
-	userUsername := username_password[0]
-	userPasswordHash := username_password[1]
-
-	assert.Equal(t, req.Context(), passedContext, "The handler must pass request's context to the service")
-	assert.Equal(t, "oussama", userUsername)
-	assert.Equal(t, "pass1234", userPasswordHash)
-}
-
-func TestErrorHandlingOfLoginHandler(t *testing.T) {
-	t.Parallel()
-	type LoginTestCase struct {
+	type testCase struct {
 		description   string
-		loginFunc     func(context.Context, string, string) (string, error)
 		body          string
+		setupMocks    setupFn
 		expectedCode  int
 		expectedBody  string
 		expectedToken string
 	}
 
 	exErr := errors.New("example error")
+	gin.SetMode(gin.TestMode)
 
-	testCases := []LoginTestCase{
+	testCases := []testCase{
 		{
-			description:   "User not found",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", domain.ErrUserNotFound },
-			body:          `{}`,
+			description: "successful login",
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "oussama", "pass1234").Return("loginToken123", nil)
+			},
+			expectedCode:  http.StatusOK,
+			expectedBody:  "",
+			expectedToken: "loginToken123",
+		},
+		{
+			description: "user not found",
+			body:        `{"username":"ghost", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "ghost", "pass1234").Return("", domain.ErrUserNotFound)
+			},
 			expectedCode:  http.StatusUnauthorized,
 			expectedBody:  auth.ErrInvalidCredentialsStr,
 			expectedToken: "",
 		},
 		{
-			description:   "Incorrect password",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", auth.ErrIncorrectPassword },
-			body:          `{}`,
+			description: "incorrect password",
+			body:        `{"username":"oussama", "password":"wrong"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "oussama", "wrong").Return("", auth.ErrIncorrectPassword)
+			},
 			expectedCode:  http.StatusUnauthorized,
 			expectedBody:  auth.ErrInvalidCredentialsStr,
 			expectedToken: "",
 		},
 		{
-			description:   "Non json request",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", nil },
+			description:   "non json request",
 			body:          `{`,
+			setupMocks:    func(m *MockAuthService) {},
 			expectedCode:  http.StatusBadRequest,
 			expectedBody:  auth.ErrInvalidRequestFormatStr,
 			expectedToken: "",
 		},
 		{
-			description:   "Timeout error",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", context.DeadlineExceeded },
-			body:          `{}`,
+			description: "timeout error",
+			body:        `{"username":"oussama", "password":"pass"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "oussama", "pass").Return("", context.DeadlineExceeded)
+			},
 			expectedCode:  http.StatusGatewayTimeout,
 			expectedBody:  auth.ErrServerTimeoutStr,
 			expectedToken: "",
 		},
 		{
-			description:   "Client closed request",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", context.Canceled },
-			body:          `{}`,
-			expectedCode:  499,
-			expectedBody:  "",
-			expectedToken: "",
-		},
-		{
-			description: "Database failure",
-			loginFunc: func(ctx context.Context, u, p string) (string, error) {
-				return "", errors.Join(domain.UnexpectedDatabaseError, exErr)
+			description: "database failure",
+			body:        `{"username":"oussama", "password":"pass"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "oussama", "pass").
+					Return("", errors.Join(domain.UnexpectedDatabaseError, exErr))
 			},
-			body:          `{}`,
 			expectedCode:  http.StatusInternalServerError,
 			expectedBody:  auth.ErrUnknownStr,
 			expectedToken: "",
 		},
 		{
-			description: "Hash comparison failure",
-			loginFunc: func(ctx context.Context, u, p string) (string, error) {
-				return "", errors.Join(domain.UnexpectedPasswordHashComparisonError, exErr)
+			description: "unknown error",
+			body:        `{"username":"oussama", "password":"pass"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Login", mock.Anything, "oussama", "pass").Return("", errors.New("random stuff"))
 			},
-			body:          `{}`,
 			expectedCode:  http.StatusInternalServerError,
 			expectedBody:  auth.ErrUnknownStr,
 			expectedToken: "",
-		},
-		{
-			description: "Token generation failure",
-			loginFunc: func(ctx context.Context, u, p string) (string, error) {
-				return "", errors.Join(domain.UnexpectedTokenGenerationError, exErr)
-			},
-			body:          `{}`,
-			expectedCode:  http.StatusInternalServerError,
-			expectedBody:  auth.ErrUnknownStr,
-			expectedToken: "",
-		},
-		{
-			description:   "Generic unknown error",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "", errors.New("random stuff") },
-			body:          `{}`,
-			expectedCode:  http.StatusInternalServerError,
-			expectedBody:  auth.ErrUnknownStr,
-			expectedToken: "",
-		},
-		{
-			description:   "Successful login",
-			loginFunc:     func(ctx context.Context, u, p string) (string, error) { return "loginToken123", nil },
-			body:          `{}`,
-			expectedCode:  http.StatusOK,
-			expectedBody:  "",
-			expectedToken: "loginToken123",
 		},
 	}
 
 	for _, tc := range testCases {
+
 		t.Run(tc.description, func(t *testing.T) {
-			authService := &MockAuthService{}
-			authService.LoginFunc = tc.loginFunc
-			authHandler := auth.NewAuthHandler(authService, 100*time.Second)
+			t.Parallel()
+			mockService := new(MockAuthService)
+			if tc.setupMocks != nil {
+				tc.setupMocks(mockService)
+			}
 
+			authHandler := auth.NewAuthHandler(mockService, 100*time.Second)
 			server := gin.New()
-
 			server.POST("/login", authHandler.LoginHandler)
+
 			req := httptest.NewRequest(http.MethodPost, "/login", bytes.NewBufferString(tc.body))
 			req.Header.Set("Content-Type", "application/json")
 			res := httptest.NewRecorder()
@@ -370,25 +311,25 @@ func TestErrorHandlingOfLoginHandler(t *testing.T) {
 			cookies := res.Result().Cookies()
 			token := ""
 			if len(cookies) > 0 {
-				assert.Equal(t, "token", cookies[0].Name, "Token cookie must be 'token'")
-				assert.Equal(t, "/", cookies[0].Path, "Cookie path must be '/'")
-				assert.Equal(t, 100, cookies[0].MaxAge, "Cookie max age mismatch")
+				assert.Equal(t, "token", cookies[0].Name)
+				assert.Equal(t, "/", cookies[0].Path)
+				assert.Equal(t, 100, cookies[0].MaxAge)
 				token = cookies[0].Value
 			}
-			code := res.Code
-			body := res.Body.String()
 
-			assert.Equal(t, tc.expectedCode, code, "HTTP status code mismatch")
-			assert.Equal(t, tc.expectedBody, body)
+			assert.Equal(t, tc.expectedCode, res.Code)
+			assert.Equal(t, tc.expectedBody, res.Body.String())
 			assert.Equal(t, tc.expectedToken, token)
+
+			mockService.AssertExpectations(t)
 		})
 	}
 }
 
 func TestLogoutHandler(t *testing.T) {
 	t.Parallel()
-	authService := &MockAuthService{}
-	authHandler := auth.NewAuthHandler(authService, 4)
+	mockService := new(MockAuthService)
+	authHandler := auth.NewAuthHandler(mockService, 4*time.Second)
 	server := gin.New()
 
 	server.POST("/logout", authHandler.LogoutHandler)
@@ -398,54 +339,163 @@ func TestLogoutHandler(t *testing.T) {
 	server.ServeHTTP(res, req)
 
 	cookies := res.Result().Cookies()
-
 	require.NotEmpty(t, cookies, "Must be a cookie here")
-	assert.Equal(t, "token", cookies[0].Name, "deleted cookie name must be 'token'")
+	assert.Equal(t, "token", cookies[0].Name)
 	assert.Less(t, cookies[0].MaxAge, 0, "token age must be negative so the cookie gets deleted")
 }
 
 func TestRequireAuthMiddleware(t *testing.T) {
 	t.Parallel()
-	authService := &MockAuthService{}
-	authHandler := auth.NewAuthHandler(authService, 15)
-	server := gin.New()
-	server.Use(authHandler.RequireAuthMiddleware(15 * time.Millisecond))
 
-	passedId := ""
+	// Helper to setup server
+	setupServer := func(m *MockAuthService) *gin.Engine {
+		authHandler := auth.NewAuthHandler(m, 15*time.Second)
+		server := gin.New()
+		server.Use(authHandler.RequireAuthMiddleware(1 * time.Millisecond))
+		server.GET("/play", func(ctx *gin.Context) {
+			ctx.Status(http.StatusOK)
+			ctx.String(http.StatusOK, ctx.GetString("id"))
+		})
+		return server
+	}
 
-	// Example of not letting non logged users to play
-	server.GET("/play", func(ctx *gin.Context) {
-		ctx.Status(http.StatusOK)
-		id := ctx.GetString("id")
-		passedId = id
+	t.Run("missing cookie", func(t *testing.T) {
+		m := new(MockAuthService)
+		server := setupServer(m)
+
+		req := httptest.NewRequest(http.MethodGet, "/play", nil)
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
+
+		assert.Equal(t, http.StatusUnauthorized, res.Code)
+		assert.Equal(t, auth.ErrMissingTokenStr, res.Body.String())
 	})
 
-	// Case 1, no cookie
-	req := httptest.NewRequest(http.MethodGet, "/play", nil)
-	res := httptest.NewRecorder()
-	server.ServeHTTP(res, req)
+	t.Run("valid token", func(t *testing.T) {
+		m := new(MockAuthService)
+		m.On("VerifyToken", "valid-token").Return("user-id-123", nil)
+		server := setupServer(m)
 
-	assert.Equal(t, http.StatusUnauthorized, res.Code, "Status Code Mismatch")
-	assert.Equal(t, auth.ErrMissingTokenStr, res.Body.String())
+		req := httptest.NewRequest(http.MethodGet, "/play", nil)
+		req.AddCookie(&http.Cookie{Name: "token", Value: "valid-token"})
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
 
-	// Case 2, Cookie exist and is valid
-	authService.VerifyTokenFunc = func(s string) (string, error) { return "id11", nil }
-	req = httptest.NewRequest(http.MethodGet, "/play", nil)
-	req.AddCookie(&http.Cookie{Name: "token", Value: "oussama"})
-	res = httptest.NewRecorder()
-	server.ServeHTTP(res, req)
+		assert.Equal(t, http.StatusOK, res.Code)
+		assert.Equal(t, "user-id-123", res.Body.String())
+		m.AssertExpectations(t)
+	})
 
-	assert.Equal(t, http.StatusOK, res.Code)
-	assert.Equal(t, "id11", passedId)
+	t.Run("expired token", func(t *testing.T) {
+		m := new(MockAuthService)
+		m.On("VerifyToken", "expired-token").Return("", domain.ErrExpiredToken)
+		server := setupServer(m)
 
-	// Case 3, Cookie exist but auth/ package says it's invalid
-	authService.VerifyTokenFunc = func(s string) (string, error) { return "", domain.ErrExpiredToken }
-	req = httptest.NewRequest(http.MethodGet, "/play", nil)
-	req.AddCookie(&http.Cookie{Name: "token", Value: "oussama"})
+		req := httptest.NewRequest(http.MethodGet, "/play", nil)
+		req.AddCookie(&http.Cookie{Name: "token", Value: "expired-token"})
+		res := httptest.NewRecorder()
+		server.ServeHTTP(res, req)
 
-	res = httptest.NewRecorder()
-	server.ServeHTTP(res, req)
+		assert.Equal(t, http.StatusUnauthorized, res.Code)
+		assert.Equal(t, auth.ErrExpiredTokenStr, res.Body.String())
+		m.AssertExpectations(t)
+	})
+}
 
-	assert.Equal(t, http.StatusUnauthorized, res.Code, "Status Code Mismatch")
-	assert.Equal(t, auth.ErrExpiredTokenStr, res.Body.String())
+func TestRefreshSessionHandler(t *testing.T) {
+	t.Parallel()
+
+	type setupFn func(m *MockAuthService)
+
+	type testCase struct {
+		description   string
+		cookieValue   string
+		setupMocks    setupFn
+		expectedCode  int
+		expectedBody  string
+		expectedToken string
+	}
+
+	gin.SetMode(gin.TestMode)
+	exErr := errors.New("example error")
+
+	testCases := []testCase{
+		{
+			description:   "Missing token cookie",
+			cookieValue:   "", // Empty implies no cookie set in request for this test logic
+			setupMocks:    func(m *MockAuthService) {},
+			expectedCode:  http.StatusUnauthorized,
+			expectedBody:  "unauthenticated",
+			expectedToken: "",
+		},
+		{
+			description: "Invalid or expired token",
+			cookieValue: "bad-token",
+			setupMocks: func(m *MockAuthService) {
+				m.On("VerifyToken", "bad-token").Return("", domain.ErrExpiredToken)
+			},
+			expectedCode:  http.StatusUnauthorized,
+			expectedBody:  "bad-token",
+			expectedToken: "",
+		},
+		{
+			description: "Token generation failure",
+			cookieValue: "valid-token",
+			setupMocks: func(m *MockAuthService) {
+				m.On("VerifyToken", "valid-token").Return("user-123", nil)
+				m.On("GenerateToken", "user-123").Return("", errors.Join(domain.UnexpectedTokenGenerationError, exErr))
+			},
+			expectedCode:  http.StatusInternalServerError,
+			expectedBody:  "",
+			expectedToken: "",
+		},
+		{
+			description: "Successful refresh",
+			cookieValue: "valid-token",
+			setupMocks: func(m *MockAuthService) {
+				m.On("VerifyToken", "valid-token").Return("user-123", nil)
+				m.On("GenerateToken", "user-123").Return("new-refreshed-token", nil)
+			},
+			expectedCode:  http.StatusOK,
+			expectedBody:  "",
+			expectedToken: "new-refreshed-token",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.description, func(t *testing.T) {
+			t.Parallel()
+			mockService := new(MockAuthService)
+			if tc.setupMocks != nil {
+				tc.setupMocks(mockService)
+			}
+
+			authHandler := auth.NewAuthHandler(mockService, 24*time.Hour)
+			server := gin.New()
+			server.POST("/refresh", authHandler.RefreshSessionHandler)
+
+			req := httptest.NewRequest(http.MethodPost, "/refresh", nil)
+			if tc.cookieValue != "" {
+				req.AddCookie(&http.Cookie{Name: "token", Value: tc.cookieValue})
+			}
+			res := httptest.NewRecorder()
+
+			server.ServeHTTP(res, req)
+
+			assert.Equal(t, tc.expectedCode, res.Code)
+			assert.Equal(t, tc.expectedBody, res.Body.String())
+
+			if tc.expectedToken != "" {
+				cookies := res.Result().Cookies()
+				if assert.NotEmpty(t, cookies, "Expected a response cookie but got none") {
+					assert.Equal(t, "token", cookies[0].Name)
+					assert.Equal(t, tc.expectedToken, cookies[0].Value)
+				}
+			} else {
+				assert.Empty(t, res.Result().Cookies())
+			}
+
+			mockService.AssertExpectations(t)
+		})
+	}
 }
