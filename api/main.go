@@ -6,6 +6,7 @@ import (
 	"api/database"
 	"context"
 	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"slices"
@@ -42,7 +43,8 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 }
 
 func main() {
-
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	slog.SetDefault(logger)
 	// ENVs
 	ALLOWED_ORIGINS, exists := os.LookupEnv("ALLOWED_ORIGINS")
 	if !exists {

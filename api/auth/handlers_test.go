@@ -119,11 +119,22 @@ func TestSignupHandler(t *testing.T) {
 			expectedToken: "",
 		},
 		{
-			description: "database failure (hashing error flow)",
+			description: "database failure",
 			body:        `{"username":"oussama", "password":"pass1234"}`,
 			setupMocks: func(m *MockAuthService) {
 				m.On("Signup", mock.Anything, "oussama", "pass1234").
 					Return("", errors.Join(domain.UnexpectedDatabaseError, exErr))
+			},
+			expectedCode:  http.StatusInternalServerError,
+			expectedBody:  auth.ErrUnknownStr,
+			expectedToken: "",
+		},
+		{
+			description: "hashing failure",
+			body:        `{"username":"oussama", "password":"pass1234"}`,
+			setupMocks: func(m *MockAuthService) {
+				m.On("Signup", mock.Anything, "oussama", "pass1234").
+					Return("", errors.Join(domain.UnexpectedPasswordHashingError, exErr))
 			},
 			expectedCode:  http.StatusInternalServerError,
 			expectedBody:  auth.ErrUnknownStr,

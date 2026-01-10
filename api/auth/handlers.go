@@ -4,8 +4,12 @@ import (
 	"api/domain"
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
+	"runtime"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 )
@@ -41,26 +45,63 @@ func (ah *authHandler) RequireAuthMiddleware(trollTime time.Duration) gin.Handle
 			ctx.Abort()
 			return
 		}
+
 		id, err := ah.authService.VerifyToken(token)
 
 		if err != nil {
-			// TODO: log what is happening
+			clientIP := ctx.ClientIP()
+			userAgent := ctx.Request.UserAgent()
+			tokenParts := strings.Split(token, ".")
+			redactedToken := ""
+			if len(tokenParts) == 3 {
+				sneak := ""
+				r := []rune(tokenParts[2])
+
+				if len(r) >= 10 {
+					sneak = string(r[:10]) + strings.Repeat("*", len(r)-10)
+				} else {
+					sneak = tokenParts[2]
+				}
+				redactedToken = tokenParts[0] + "." + tokenParts[1] + "." + sneak
+			} else {
+				redactedToken = token
+			}
+
 			switch {
-			case errors.Is(err, domain.ErrInvalidSigningAlg), errors.Is(err, domain.ErrInvalidTokenSignature), errors.Is(err, domain.ErrCorruptedToken):
+			case errors.Is(err, domain.ErrInvalidSigningAlg),
+				errors.Is(err, domain.ErrInvalidTokenSignature),
+				errors.Is(err, domain.ErrCorruptedToken):
+
+				slog.Warn("security: suspicious token attempt",
+					"ip", clientIP,
+					"user_agent", userAgent,
+					"error", err.Error(),
+					"token", redactedToken,
+				)
+
 				time.Sleep(trollTime)
 				ctx.Status(http.StatusInternalServerError)
 				ctx.Abort()
+
 			case errors.Is(err, domain.ErrExpiredToken):
+				slog.Info("token expired", "ip", clientIP, "token", redactedToken)
 				ctx.String(http.StatusUnauthorized, ErrExpiredTokenStr)
 				ctx.Abort()
+
 			default:
-				ctx.String(http.StatusInternalServerError, ErrUnknownStr)
+
+				slog.Error("internal auth error",
+					"ip", clientIP,
+					"error", err.Error(),
+					"token", redactedToken,
+				)
+
+				ctx.String(http.StatusUnauthorized, ErrUnknownStr)
 				ctx.Abort()
 			}
 
 			return
 		}
-
 		ctx.Set("id", id)
 		ctx.Next()
 	}
@@ -85,6 +126,8 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 	token, err := ah.authService.Login(reqCtx, loginCredentials.Username, loginCredentials.Password)
 
 	if err != nil {
+		clientIP := ctx.ClientIP()
+		userAgent := ctx.Request.UserAgent()
 		switch {
 		case errors.Is(err, ErrIncorrectPassword), errors.Is(err, domain.ErrUserNotFound):
 			ctx.String(http.StatusUnauthorized, ErrInvalidCredentialsStr)
@@ -96,17 +139,52 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 			ctx.Status(499)
 			ctx.Abort()
 
-		// TODO: for each case, log what happened with necessary info to help identify what caused the unexpected error
 		case errors.Is(err, domain.UnexpectedDatabaseError):
+			slog.Error("Database returned an unexpected error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", loginCredentials.Username,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 			ctx.Abort()
+
 		case errors.Is(err, domain.UnexpectedPasswordHashComparisonError):
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			slog.Error("Hashing comparison error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", loginCredentials.Username,
+				"password_len", utf8.RuneCountInString(loginCredentials.Password),
+				"mem_alloc_mb", (mem.Alloc/1024)/1024,
+				"mem_sys_mb", (mem.Sys/1024)/1024,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 			ctx.Abort()
+
 		case errors.Is(err, domain.UnexpectedTokenGenerationError):
+			slog.Error("Token generation error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", loginCredentials.Username,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 			ctx.Abort()
 		default:
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			slog.Error("Unknown unexpected error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", loginCredentials.Username,
+				"password_len", utf8.RuneCountInString(loginCredentials.Password),
+				"mem_alloc_mb", (mem.Alloc/1024)/1024,
+				"mem_sys_mb", (mem.Sys/1024)/1024,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 			ctx.Abort()
 		}
@@ -137,6 +215,9 @@ func (ah *authHandler) SignupHandler(ctx *gin.Context) {
 	token, err := ah.authService.Signup(reqCtx, signupCredentials.Username, signupCredentials.Password)
 
 	if err != nil {
+		clientIP := ctx.ClientIP()
+		userAgent := ctx.Request.UserAgent()
+
 		switch {
 		case errors.Is(err, domain.ErrDuplicateUsername):
 			ctx.String(http.StatusConflict, ErrUsernameAlreadyExistsStr)
@@ -154,19 +235,52 @@ func (ah *authHandler) SignupHandler(ctx *gin.Context) {
 			ctx.String(http.StatusGatewayTimeout, ErrServerTimeoutStr)
 
 		case errors.Is(err, context.Canceled):
-			ctx.Status(499) // http code for "Client Closed Request"
+			ctx.Status(499)
 
-		// TODO: for each case, log what happened with necessary info to help identify what caused the unexpected error
 		case errors.Is(err, domain.UnexpectedDatabaseError):
+			slog.Error("Signup: Database returned an unexpected error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", signupCredentials.Username,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 
-		case errors.Is(err, domain.UnexpectedPasswordHashComparisonError):
+		case errors.Is(err, domain.UnexpectedPasswordHashingError):
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			slog.Error("Signup: Password hashing error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", signupCredentials.Username,
+				"password_len", utf8.RuneCountInString(signupCredentials.Password),
+				"mem_alloc_mb", (mem.Alloc/1024)/1024,
+				"mem_sys_mb", (mem.Sys/1024)/1024,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 
 		case errors.Is(err, domain.UnexpectedTokenGenerationError):
+			slog.Error("Signup: Token generation error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", signupCredentials.Username,
+			)
 			ctx.String(http.StatusInternalServerError, ErrAccountCreatedButNoToken)
 
 		default:
+			var mem runtime.MemStats
+			runtime.ReadMemStats(&mem)
+			slog.Error("Signup: Unknown unexpected error",
+				"error", err.Error(),
+				"ip", clientIP,
+				"user_agent", userAgent,
+				"username", signupCredentials.Username,
+				"password_len", utf8.RuneCountInString(signupCredentials.Password),
+				"mem_alloc_mb", (mem.Alloc/1024)/1024,
+				"mem_sys_mb", (mem.Sys/1024)/1024,
+			)
 			ctx.String(http.StatusInternalServerError, ErrUnknownStr)
 		}
 		ctx.Abort()
@@ -187,12 +301,43 @@ func (ah *authHandler) RefreshSessionHandler(ctx *gin.Context) {
 
 	id, err := ah.authService.VerifyToken(token)
 	if err != nil {
+		clientIP := ctx.ClientIP()
+		userAgent := ctx.Request.UserAgent()
+		tokenParts := strings.Split(token, ".")
+		redactedToken := ""
+		if len(tokenParts) == 3 {
+			sneak := ""
+			r := []rune(tokenParts[2])
+			if len(r) >= 10 {
+				sneak = string(r[:10]) + strings.Repeat("*", len(r)-10)
+			} else {
+				sneak = tokenParts[2]
+			}
+			redactedToken = tokenParts[0] + "." + tokenParts[1] + "." + sneak
+		} else {
+			redactedToken = token
+		}
+
+		slog.Warn("Refresh: Invalid token provided",
+			"ip", clientIP,
+			"user_agent", userAgent,
+			"error", err.Error(),
+			"token", redactedToken,
+		)
 		ctx.String(http.StatusUnauthorized, "bad-token")
 		return
 	}
 
 	newToken, err := ah.authService.GenerateToken(id)
 	if err != nil {
+		clientIP := ctx.ClientIP()
+		userAgent := ctx.Request.UserAgent()
+		slog.Error("Refresh: Failed to generate new token",
+			"ip", clientIP,
+			"user_agent", userAgent,
+			"error", err.Error(),
+			"user_id", id,
+		)
 		ctx.Status(http.StatusInternalServerError)
 		return
 	}
