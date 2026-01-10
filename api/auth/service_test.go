@@ -107,7 +107,6 @@ func TestSignup(t *testing.T) {
 				h.On("Hash", "12345678").Return("hashed_secret", nil)
 				r.On("CreateUser", mock.Anything, "oussama", "hashed_secret").Return("111-111", nil)
 
-				// Token generation fails
 				tm.On("Generate", "111-111", mock.Anything).Return("", errors.Join(domain.UnexpectedTokenGenerationError, exampleErr))
 			},
 			expectedToken: "",
@@ -203,7 +202,6 @@ func TestSignup(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		tc := tc // capture range variable
 		t.Run(tc.description, func(t *testing.T) {
 			t.Parallel()
 
