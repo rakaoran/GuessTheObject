@@ -35,7 +35,7 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 		AllowOrigins:     allowedOrigins,
 		AllowCredentials: true,
 		AllowHeaders:     []string{"Content-Type"},
-		AllowMethods:     []string{"GET", "POST"},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 	}))
 
 	return r
@@ -57,19 +57,22 @@ func main() {
 	if !exists {
 		log.Fatal("Missing jwt signing key")
 	}
+
 	// Dependencies
 	pgRepo, err := database.NewPostgresRepo(context.Background(), POSTGRES_URL)
 	if err != nil {
 		log.Fatal(err)
 	}
-	tokenAge := time.Hour * 24 * 7
+	tokenAge := time.Hour * 24 * 7 // 7 days
 	passwordHasher := crypto.NewArgon2idHasher(3, 1024*64, 32, 16, 1)
 	tokenManager := crypto.NewJWTManager(JWT_KEY, tokenAge)
+
 	authService := auth.NewService(pgRepo, passwordHasher, tokenManager)
 	authHandler := auth.NewAuthHandler(authService, tokenAge)
 
 	r := CreateServer(allowedOrigins)
-	//auth part
+
+	// ! WARNING, make sure the Routes are correctly binded as the bindings are not tested
 	{
 		auth := r.Group("/auth")
 		auth.POST("/signup", authHandler.SignupHandler)
@@ -79,5 +82,4 @@ func main() {
 	}
 
 	r.Run(":5000")
-
 }
