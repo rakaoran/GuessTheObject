@@ -72,7 +72,7 @@ func (ah *authHandler) RequireAuthMiddleware(trollTime time.Duration) gin.Handle
 				errors.Is(err, domain.ErrInvalidTokenSignature),
 				errors.Is(err, domain.ErrCorruptedToken):
 
-				slog.Warn("security: suspicious token attempt",
+				slog.Warn("RequireAuthMiddleware: suspicious token attempt",
 					"ip", clientIP,
 					"user_agent", userAgent,
 					"error", err.Error(),
@@ -84,13 +84,13 @@ func (ah *authHandler) RequireAuthMiddleware(trollTime time.Duration) gin.Handle
 				ctx.Abort()
 
 			case errors.Is(err, domain.ErrExpiredToken):
-				slog.Info("token expired", "ip", clientIP, "token", redactedToken)
+				slog.Info("RequireAuthMiddleware: token expired", "ip", clientIP, "token", redactedToken)
 				ctx.String(http.StatusUnauthorized, ErrExpiredTokenStr)
 				ctx.Abort()
 
 			default:
 
-				slog.Error("internal auth error",
+				slog.Error("RequireAuthMiddleware: internal auth error",
 					"ip", clientIP,
 					"error", err.Error(),
 					"token", redactedToken,
@@ -140,7 +140,7 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 			ctx.Abort()
 
 		case errors.Is(err, domain.UnexpectedDatabaseError):
-			slog.Error("Database returned an unexpected error",
+			slog.Error("Login: Database returned an unexpected error",
 				"error", err.Error(),
 				"ip", clientIP,
 				"user_agent", userAgent,
@@ -152,7 +152,7 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 		case errors.Is(err, domain.UnexpectedPasswordHashComparisonError):
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
-			slog.Error("Hashing comparison error",
+			slog.Error("Login: Hashing comparison error",
 				"error", err.Error(),
 				"ip", clientIP,
 				"user_agent", userAgent,
@@ -165,7 +165,7 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 			ctx.Abort()
 
 		case errors.Is(err, domain.UnexpectedTokenGenerationError):
-			slog.Error("Token generation error",
+			slog.Error("Login: Token generation error",
 				"error", err.Error(),
 				"ip", clientIP,
 				"user_agent", userAgent,
@@ -176,7 +176,7 @@ func (ah *authHandler) LoginHandler(ctx *gin.Context) {
 		default:
 			var mem runtime.MemStats
 			runtime.ReadMemStats(&mem)
-			slog.Error("Unknown unexpected error",
+			slog.Error("Login: Unknown unexpected error",
 				"error", err.Error(),
 				"ip", clientIP,
 				"user_agent", userAgent,

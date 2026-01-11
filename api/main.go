@@ -2,8 +2,9 @@ package main
 
 import (
 	"api/auth"
+	"api/config"
 	"api/crypto"
-	"api/database"
+	"api/storage"
 	"context"
 	"log"
 	"log/slog"
@@ -21,6 +22,7 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 	r := gin.New()
 	r.GET("/health", func(ctx *gin.Context) { ctx.String(200, "healthy") })
 
+	// CSRF protection
 	r.Use(func(ctx *gin.Context) {
 		origin := ctx.Request.Header.Get("Origin")
 		println(origin)
@@ -32,6 +34,7 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 		ctx.Abort()
 	})
 
+	//CORS config
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowCredentials: true,
@@ -43,25 +46,33 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 }
 
 func main() {
+
+	// logger setup
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	if config.Debug {
+		slog.SetLogLoggerLevel(slog.LevelDebug)
+	}
+
 	// ENVs
 	ALLOWED_ORIGINS, exists := os.LookupEnv("ALLOWED_ORIGINS")
 	if !exists {
 		log.Fatal("Missing allowed origins")
 	}
 	allowedOrigins := strings.Split(ALLOWED_ORIGINS, ",")
+
 	POSTGRES_URL, exists := os.LookupEnv("POSTGRES_URL")
 	if !exists {
 		log.Fatal("Missing postgres url")
 	}
+
 	JWT_KEY, exists := os.LookupEnv("JWT_KEY")
 	if !exists {
 		log.Fatal("Missing jwt signing key")
 	}
 
 	// Dependencies
-	pgRepo, err := database.NewPostgresRepo(context.Background(), POSTGRES_URL)
+	pgRepo, err := storage.NewPostgresRepo(context.Background(), POSTGRES_URL)
 	if err != nil {
 		log.Fatal(err)
 	}

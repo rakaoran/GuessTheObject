@@ -1,8 +1,8 @@
-package database_test
+package storage_test
 
 import (
-	"api/database"
 	"api/domain"
+	"api/storage"
 	"context"
 	"os"
 	"path/filepath"
@@ -17,7 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var repo *database.PostgresPlayerRepo
+var repo *storage.PostgresPlayerRepo
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -46,7 +46,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 
-	repo, err = database.NewPostgresRepo(ctx, connString)
+	repo, err = storage.NewPostgresRepo(ctx, connString)
 	if err != nil {
 		panic(err)
 	}

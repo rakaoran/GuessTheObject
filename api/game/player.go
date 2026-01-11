@@ -1,6 +1,7 @@
 package game
 
 import (
+	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
@@ -9,14 +10,22 @@ type Player struct {
 	id          string
 	username    string
 	score       int
-	rateLimiter RateLimiter
-	socket      NetworkSession
+	rateLimiter rate.Limiter
+	socket      WebsocketConnection
 	inbox       chan []byte
 	pingChan    chan struct{}
 	room        *Room
 }
 
-type RateLimiter struct {
+func NewPlayer(id, username string, socket WebsocketConnection) *Player {
+	return &Player{
+		id:          id,
+		username:    username,
+		rateLimiter: *rate.NewLimiter(1, 5),
+		socket:      socket,
+		inbox:       make(chan []byte, 256),
+		pingChan:    make(chan struct{}),
+	}
 }
 
 func (p *Player) ReadPump() {
