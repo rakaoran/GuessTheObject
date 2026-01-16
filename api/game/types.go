@@ -2,12 +2,15 @@ package game
 
 import (
 	"api/domain"
+	"api/domain/protobuf"
 	"context"
 	"sync"
 	"time"
 
 	"golang.org/x/time/rate"
 )
+
+type RoomPhase int
 
 type WebsocketConnection interface {
 	Close(errCode string)
@@ -23,51 +26,45 @@ type UserGetter interface {
 type Player struct {
 	id          string
 	username    string
-	score       int
 	rateLimiter rate.Limiter
-	socket      WebsocketConnection
 	inbox       chan []byte
 	pingChan    chan struct{}
-	room        *Room
+	roomChan    chan<- ClientPacketEnvelope
 }
 
-type RoomConfigs struct {
-	maxPlayers           int
-	roundsCount          int
-	choosingWordDuration time.Duration
-	drawingDuration      time.Duration
+type ClientPacketEnvelope struct {
+	clientPacket *protobuf.ClientPacket
+	rawBinary    []byte
+	from         *Player
+}
+
+type RoomJoinRequest struct {
+	player  *Player
+	errChan chan error
 }
 
 type Room struct {
-	// Identity / metadata
-	id      string
-	hostID  string
-	private bool
-
-	// configs
-	configs RoomConfigs
-
-	// Runtime state
-	phase           RoomPhase
-	round           int
-	nextTick        time.Time
-	drawerIndex     int
-	currentWord     string
-	bannedPlayerIds map[string]bool
-	scoreIncrements map[*Player]int
-
-	// Gameplay data
-	wordChoices    []string
-	drawingHistory [][]byte
-	guessers       map[*Player]bool
-	kickVotes      map[*Player]map[*Player]bool
-
-	// Players
-	players []*Player
-
-	// Communication
+	private               bool
+	id                    string
+	host                  *Player
+	players               []*Player
+	scores                map[*Player]int
+	drawerIndex           int
+	maxPlayers            int
+	roundsCount           int
+	phase                 RoomPhase
+	round                 int
+	nextTick              time.Time
+	choosingWordDuration  time.Duration
+	drawingDuration       time.Duration
+	currentWord           string
+	bannedPlayerIds       map[string]struct{}
+	scoreIncrements       map[*Player]int
+	wordChoices           []string
+	drawingHistory        [][]byte
+	guessers              map[string]bool
 	inbox                 chan ClientPacketEnvelope
-	ticks                 chan struct{}
+	ticks                 chan time.Time
 	playerRemovalRequests chan *Player
 	joinRequests          chan RoomJoinRequest
 }
@@ -75,11 +72,4 @@ type Room struct {
 type Idgen struct {
 	ids    map[string]struct{}
 	locker sync.Mutex
-}
-
-type service struct {
-	locker     sync.RWMutex
-	rooms      map[string]*Room
-	idGen      Idgen
-	userGetter UserGetter
 }
