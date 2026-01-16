@@ -1,21 +1,12 @@
 package game
 
 import (
+	"api/domain/protobuf"
+
 	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/encoding/protowire"
 	"google.golang.org/protobuf/proto"
 )
-
-type Player struct {
-	id          string
-	username    string
-	score       int
-	rateLimiter rate.Limiter
-	socket      WebsocketConnection
-	inbox       chan []byte
-	pingChan    chan struct{}
-	room        *Room
-}
 
 func NewPlayer(id, username string, socket WebsocketConnection) *Player {
 	return &Player{
@@ -49,7 +40,7 @@ func (p *Player) ReadPump() {
 		if fieldNum == 1 { // = 1 tag in .proto
 			envelope.rawBinary = data
 		} else {
-			envelope.clientPacket = &ClientPacket{}
+			envelope.clientPacket = &protobuf.ClientPacket{}
 			if err := proto.Unmarshal(data, envelope.clientPacket); err != nil {
 				continue
 			}

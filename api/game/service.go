@@ -2,15 +2,7 @@ package game
 
 import (
 	"context"
-	"sync"
 )
-
-type service struct {
-	locker     sync.RWMutex
-	rooms      map[string]*Room
-	idGen      Idgen
-	userGetter UserGetter
-}
 
 func NewService(userGetter UserGetter) service {
 	return service{
@@ -43,20 +35,20 @@ func (s *service) CreateRoom(ctx context.Context, playerId string, playerWS Webs
 
 func (s *service) JoinRoom(ctx context.Context, playerId, roomId string, playerWS WebsocketConnection) error {
 	s.locker.RLock()
-	room, exists := s.rooms[roomId]
+	// room, exists := s.rooms[roomId]
 	s.locker.RUnlock()
 
-	user, err := s.userGetter.GetUserById(ctx, playerId)
+	// user, err := s.userGetter.GetUserById(ctx, playerId)
 
-	player := NewPlayer(playerId, user.Username, playerWS)
+	// player := NewPlayer(playerId, user.Username, playerWS)
 
-	if err != nil {
-		playerWS.Close("unknown error")
-		return err
-	}
+	// if err != nil {
+	// 	playerWS.Close("unknown error")
+	// 	return err
+	// }
 
-	if !exists {
-		return ErrRoomNotFound
-	}
-
+	// if !exists {
+	// 	return ErrRoomNotFound
+	// }
+	return nil
 }

@@ -2,15 +2,9 @@ package game
 
 import (
 	"math/rand"
-	"sync"
 )
 
 var chars = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
-
-type Idgen struct {
-	ids    map[string]struct{}
-	locker sync.Mutex
-}
 
 func NewIdGen() Idgen {
 	return Idgen{

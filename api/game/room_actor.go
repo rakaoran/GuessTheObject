@@ -1,8 +1,6 @@
 package game
 
-import "time"
-
-type RoomPhase int
+import "api/domain/protobuf"
 
 const (
 	PHASE_PENDING RoomPhase = iota
@@ -12,60 +10,21 @@ const (
 	PHASE_LEADERBOARD
 )
 
+type RoomPhase int
+
 type RoomJoinRequest struct {
 	player  *Player
 	errChan chan string
 }
 
-func NewRoomJoinRequest(player *Player) RoomJoinRequest {
-	return RoomJoinRequest{player: player, errChan: make(chan string, 1)}
-}
-
 type ClientPacketEnvelope struct {
-	clientPacket *ClientPacket
+	clientPacket *protobuf.ClientPacket
 	rawBinary    []byte
 	from         *Player
 }
 
-type RoomConfigs struct {
-	maxPlayers           int
-	roundsCount          int
-	choosingWordDuration time.Duration
-	drawingDuration      time.Duration
-}
-
-type Room struct {
-	// Identity / metadata
-	id      string
-	hostID  string
-	private bool
-
-	// configs
-	configs RoomConfigs
-
-	// Runtime state
-	phase           RoomPhase
-	round           int
-	nextTick        time.Time
-	drawerIndex     int
-	currentWord     string
-	bannedPlayerIds map[string]bool
-	scoreIncrements map[*Player]int
-
-	// Gameplay data
-	wordChoices    []string
-	drawingHistory [][]byte
-	guessers       map[*Player]bool
-	kickVotes      map[*Player]map[*Player]bool
-
-	// Players
-	players []*Player
-
-	// Communication
-	inbox                 chan ClientPacketEnvelope
-	ticks                 chan struct{}
-	playerRemovalRequests chan *Player
-	joinRequests          chan RoomJoinRequest
+func NewRoomJoinRequest(player *Player) RoomJoinRequest {
+	return RoomJoinRequest{player: player, errChan: make(chan string, 1)}
 }
 
 func NewRoom(id string, player *Player, configs RoomConfigs, private bool) *Room {
