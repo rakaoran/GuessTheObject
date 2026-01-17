@@ -18,23 +18,27 @@ type WebsocketConnection interface {
 	Read() ([]byte, error)
 	Ping() error
 }
-
+type RandomWordsGenerator interface {
+	Generate(count int) []string
+}
 type UserGetter interface {
 	GetUserById(ctx context.Context, id string) (domain.User, error)
 }
 
 type Player struct {
-	id          string
-	username    string
-	rateLimiter rate.Limiter
-	inbox       chan []byte
-	pingChan    chan struct{}
-	roomChan    chan<- ClientPacketEnvelope
+	id             string
+	username       string
+	score          int
+	scoreIncrement int
+	hasGuessed     bool
+	rateLimiter    rate.Limiter
+	inbox          chan []byte
+	pingChan       chan struct{}
+	roomChan       chan<- ClientPacketEnvelope
 }
 
 type ClientPacketEnvelope struct {
 	clientPacket *protobuf.ClientPacket
-	rawBinary    []byte
 	from         *Player
 }
 
@@ -48,25 +52,25 @@ type Room struct {
 	id                    string
 	host                  *Player
 	players               []*Player
-	scores                map[*Player]int
 	drawerIndex           int
+	currentDrawer         *Player
 	maxPlayers            int
 	roundsCount           int
+	wordsCount            int
 	phase                 RoomPhase
 	round                 int
 	nextTick              time.Time
 	choosingWordDuration  time.Duration
 	drawingDuration       time.Duration
 	currentWord           string
-	bannedPlayerIds       map[string]struct{}
-	scoreIncrements       map[*Player]int
 	wordChoices           []string
 	drawingHistory        [][]byte
-	guessers              map[string]bool
 	inbox                 chan ClientPacketEnvelope
 	ticks                 chan time.Time
 	playerRemovalRequests chan *Player
 	joinRequests          chan RoomJoinRequest
+
+	randomWordsGenerator RandomWordsGenerator
 }
 
 type Idgen struct {

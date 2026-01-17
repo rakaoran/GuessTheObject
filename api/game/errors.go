@@ -3,6 +3,6 @@ package game
 import "errors"
 
 var (
-	ErrRoomNotFound = errors.New("Room not found")
-	ErrRoomFull     = errors.New("Room full")
+	ErrRoomNotFound = errors.New("room-not-found")
+	ErrRoomFull     = errors.New("room-not-found")
 )

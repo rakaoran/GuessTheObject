@@ -17,19 +17,14 @@ message ServerPacket {
     PlayerMessage player_message = 10;
     PleaseChooseAWord please_choose_a_word = 11;
     InitialRoomSnapshot initial_room_snapshot = 12;
-    PlayerKicked player_kicked = 13;
-    YourTurnToDraw your_turn_to_draw = 14;
-    PlayerLeft player_left = 15;
+    YourTurnToDraw your_turn_to_draw = 13;
+    PlayerLeft player_left = 14;
   }
 
   int64 server_timestamp = 16;
 
   message YourTurnToDraw {
     string word = 1;
-  }
-
-  message PlayerKicked {
-    string username = 1;
   }
 
   message InitialRoomSnapshot {
@@ -41,6 +36,7 @@ message ServerPacket {
     repeated PlayerState players = 1;
     repeated bytes drawing_history = 2;
     string current_drawer = 3;
+    int32 current_round = 4;
   }
 
   message PlayerJoined {
@@ -85,7 +81,9 @@ message ServerPacket {
     string message = 2;
   }
 
-  message PleaseChooseAWord {}
+  message PleaseChooseAWord {
+    repeated string words = 1;
+  }
 }
 
 message ClientPacket {
@@ -93,7 +91,6 @@ message ClientPacket {
     DrawingData drawing_data = 1;
     PlayerMessage player_message = 2;
     WordChoice word_choice = 3;
-    KickVote kick_vote = 4;
     StartGame start_game = 5;
   }
 
@@ -103,26 +100,11 @@ message ClientPacket {
     int64 choice = 1;
   }
 
-  message KickVote {
-    string username = 1;
-  }
-
   message PlayerMessage {
     string message = 1;
   }
 }
 
 message DrawingData {
-  enum DendePartType {
-    DRAWING = 0;
-    FILLING = 1;
-    UNDO = 2;
-    REDO = 3;
-    CLEAR = 4;
-  }
-  DendePartType type = 1;
-  bool is_line_end = 2;
-  repeated uint32 coordinates = 3; // [x1, y1, x2, y2, ...]
-  uint32 color = 4; // 0xRRGGBBAA
-  uint32 line_width = 5;
+  bytes data = 1;
 }
