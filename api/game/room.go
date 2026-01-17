@@ -20,14 +20,43 @@ func (r *Room) addPlayer(p *Player) error {
 		return ErrRoomFull
 	}
 	r.players = append(r.players, p)
+
+	x := &protobuf.ServerPacket_InitialRoomSnapshot{
+		PlayersStates: make([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState, len(r.players)),
+	}
+	initialRoomSnapshot := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_InitialRoomSnapshot_{
+			InitialRoomSnapshot: x,
+		},
+	}
+	for _, p := range r.players {
+		x.PlayersStates = append(x.PlayersStates, &protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{
+			Username:  p.username,
+			Score:     int64(p.score),
+			IsGuesser: p.hasGuessed,
+		})
+	}
+	x.CurrentDrawer = r.currentDrawer.username
+	x.CurrentRound = int32(r.round)
+	x.DrawingHistory = r.drawingHistory
+
+	r.broadcastTo(initialRoomSnapshot, p)
 	return nil
 }
 
 func (r *Room) removePlayer(toRemove *Player) {
-	// TODO: if drawer left and stuff
 	for i, p := range r.players {
 		if p == toRemove {
 			r.players = append(r.players[0:i], r.players[i+1:]...)
+
+			if i < r.drawerIndex {
+				r.drawerIndex--
+			} else if i == r.drawerIndex {
+				r.transitionToChoosingWord()
+			}
+			if len(r.players) <= 1 && r.phase != PHASE_PENDING {
+				r.transitionToGameEnd()
+			}
 			return
 		}
 	}
@@ -36,7 +65,7 @@ func (r *Room) removePlayer(toRemove *Player) {
 func (r *Room) RoomActor() {
 	for {
 		if r.phase == PHASE_GAMEEND {
-			return
+			break
 		}
 		select {
 		case envelope := <-r.inbox:
@@ -76,19 +105,18 @@ func (r *Room) handleEnvelope(env ClientPacketEnvelope) {
 }
 
 func (r *Room) handleDrawingData(drawingData *protobuf.DrawingData, from *Player) {
-	for i, p := range r.players {
-		if i == r.drawerIndex && p == from {
-			pkt := &protobuf.ServerPacket{
-				Payload: &protobuf.ServerPacket_DrawingData{
-					DrawingData: drawingData,
-				},
-			}
-
-			r.broadcastToAll(pkt)
-		} else {
-			// TODO
+	if r.currentDrawer == from {
+		pkt := &protobuf.ServerPacket{
+			Payload: &protobuf.ServerPacket_DrawingData{
+				DrawingData: drawingData,
+			},
 		}
+
+		r.broadcastToAll(pkt)
+		r.drawingHistory = append(r.drawingHistory, drawingData.Data)
+		return
 	}
+
 }
 
 func (r *Room) handleStartGame(from *Player) {
@@ -117,27 +145,7 @@ func (r *Room) handleWordChoice(wordChoice *protobuf.ClientPacket_WordChoice, fr
 		// TODO
 		return
 	}
-
 	r.currentWord = r.wordChoices[choiceIndex]
-
-	playerStartedDrawing := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerIsDrawing_{
-			PlayerIsDrawing: &protobuf.ServerPacket_PlayerIsDrawing{
-				Username: from.username,
-			},
-		},
-	}
-
-	yourTurn := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_YourTurnToDraw_{
-			YourTurnToDraw: &protobuf.ServerPacket_YourTurnToDraw{
-				Word: r.currentWord,
-			},
-		},
-	}
-
-	r.broadcastToAllExcept(playerStartedDrawing, from)
-	r.broadcastTo(yourTurn, from)
 }
 
 func (r *Room) handlePlayerMessage(clientMessage *protobuf.ClientPacket_PlayerMessage, from *Player) {
@@ -178,13 +186,13 @@ func (r *Room) handleTick(now time.Time) {
 
 	switch r.phase {
 	case PHASE_PENDING:
-
+		r.transitionToChoosingWord()
 	case PHASE_CHOOSING_WORD:
-
+		r.transitionToDrawing()
 	case PHASE_DRAWING:
-
+		r.transitionToTurnSummary()
 	case PHASE_TURN_SUMMARY:
-
+		r.transitionToChoosingWord()
 	case PHASE_GAMEEND:
 	}
 }
@@ -192,8 +200,11 @@ func (r *Room) handleTick(now time.Time) {
 func (r *Room) transitionToChoosingWord() {
 	r.phase = PHASE_CHOOSING_WORD
 	r.currentWord = ""
-	if r.currentDrawer == nil || r.drawerIndex == 0 {
+	if r.currentDrawer == nil {
 		r.drawerIndex = len(r.players) - 1
+	} else if r.drawerIndex == 0 {
+		r.transitionToNextRound()
+		return
 	} else {
 		r.drawerIndex--
 	}
@@ -224,15 +235,97 @@ func (r *Room) transitionToChoosingWord() {
 }
 
 func (r *Room) transitionToDrawing() {
+	r.phase = PHASE_DRAWING
+	if r.currentWord == "" {
+		r.currentWord = r.wordChoices[0]
+	}
 
+	drawer := r.currentDrawer
+
+	playerStartedDrawing := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_PlayerIsDrawing_{
+			PlayerIsDrawing: &protobuf.ServerPacket_PlayerIsDrawing{
+				Username: drawer.username,
+			},
+		},
+	}
+
+	yourTurn := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_YourTurnToDraw_{
+			YourTurnToDraw: &protobuf.ServerPacket_YourTurnToDraw{
+				Word: r.currentWord,
+			},
+		},
+	}
+
+	r.broadcastToAllExcept(playerStartedDrawing, drawer)
+	r.broadcastTo(yourTurn, drawer)
+	r.nextTick = time.Now().Add(r.drawingDuration)
 }
 
 func (r *Room) transitionToTurnSummary() {
+	r.phase = PHASE_TURN_SUMMARY
+	clear(r.drawingHistory)
+	r.drawingHistory = r.drawingHistory[:0]
 
+	x := &protobuf.ServerPacket_TurnSummary{
+		WordReveal: r.currentWord,
+		Deltas:     []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{},
+	}
+	turnSummary := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_TurnSummary_{
+			TurnSummary: x,
+		},
+	}
+
+	for _, p := range r.players {
+		x.Deltas = append(x.Deltas, &protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+			ScoreDelta: int64(p.scoreIncrement),
+			Username:   p.username,
+		})
+	}
+
+	r.broadcastToAll(turnSummary)
+	r.nextTick = time.Now().Add(5 * time.Second)
+}
+
+func (r *Room) transitionToNextRound() {
+	r.round++
+	if r.round > r.roundsCount {
+		r.transitionToGameEnd()
+		return
+	}
+	nextRound := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_RoundUpdate_{
+			RoundUpdate: &protobuf.ServerPacket_RoundUpdate{
+				RoundNumber: int64(r.round),
+			},
+		},
+	}
+
+	r.broadcastToAll(nextRound)
+	r.transitionToChoosingWord()
 }
 
 func (r *Room) transitionToGameEnd() {
+	leaderboard := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_Leaderboard{},
+	}
 
+	r.broadcastToAll(leaderboard)
+	r.clearResources()
+	r.phase = PHASE_GAMEEND
+}
+
+func (r *Room) clearResources() {
+	// ! I need to make the lobby remove this game first before cleaning so there can't be a panic of writing to a closed channel
+	r.players = nil
+	r.wordChoices = nil
+	r.drawingHistory = nil
+	close(r.inbox)
+	close(r.ticks)
+	close(r.playerRemovalRequests)
+	close(r.joinRequests)
 }
 
 func (r *Room) broadcastPlayerLeft(username string) {

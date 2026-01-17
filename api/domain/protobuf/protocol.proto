@@ -33,7 +33,7 @@ message ServerPacket {
       int64 score = 2;
       bool is_guesser = 3;
     }
-    repeated PlayerState players = 1;
+    repeated PlayerState players_states = 1;
     repeated bytes drawing_history = 2;
     string current_drawer = 3;
     int32 current_round = 4;
