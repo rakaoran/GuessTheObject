@@ -41,6 +41,15 @@ func (r *Room) addPlayer(p *Player) error {
 	x.DrawingHistory = r.drawingHistory
 
 	r.broadcastTo(initialRoomSnapshot, p)
+
+	playerJoined := &protobuf.ServerPacket{
+		Payload: &protobuf.ServerPacket_PlayerJoined_{
+			PlayerJoined: &protobuf.ServerPacket_PlayerJoined{
+				Username: p.username,
+			},
+		},
+	}
+	r.broadcastToAll(playerJoined)
 	return nil
 }
 
@@ -57,6 +66,19 @@ func (r *Room) removePlayer(toRemove *Player) {
 			if len(r.players) <= 1 && r.phase != PHASE_PENDING {
 				r.transitionToGameEnd()
 			}
+			p.cancelCtx()
+			close(p.inbox)
+			close(p.pingChan)
+			p.roomChan = nil
+			p.removeMe = nil
+			playerLeft := &protobuf.ServerPacket{
+				Payload: &protobuf.ServerPacket_PlayerLeft_{
+					PlayerLeft: &protobuf.ServerPacket_PlayerLeft{
+						Username: toRemove.username,
+					},
+				},
+			}
+			r.broadcastToAll(playerLeft)
 			return
 		}
 	}
@@ -65,9 +87,14 @@ func (r *Room) removePlayer(toRemove *Player) {
 func (r *Room) RoomActor() {
 	for {
 		if r.phase == PHASE_GAMEEND {
-			break
+			return
 		}
 		select {
+		case s := <-r.pingPlayers:
+			for _, p := range r.players {
+				p.pingChan <- s
+			}
+
 		case envelope := <-r.inbox:
 			r.handleEnvelope(envelope)
 
@@ -76,15 +103,12 @@ func (r *Room) RoomActor() {
 
 		case p := <-r.playerRemovalRequests:
 			r.removePlayer(p)
-			r.broadcastPlayerLeft(p.username)
 
 		case joinReq := <-r.joinRequests:
 			p := joinReq.player
 			err := r.addPlayer(p)
 			if err != nil {
 				joinReq.errChan <- err
-			} else {
-				r.broadcastPlayerJoined(p.username)
 			}
 		}
 
@@ -149,6 +173,23 @@ func (r *Room) handleWordChoice(wordChoice *protobuf.ClientPacket_WordChoice, fr
 }
 
 func (r *Room) handlePlayerMessage(clientMessage *protobuf.ClientPacket_PlayerMessage, from *Player) {
+	if clientMessage.Message == r.currentWord && !from.hasGuessed && r.phase == PHASE_DRAWING {
+		serverPacket := &protobuf.ServerPacket{
+			Payload: &protobuf.ServerPacket_PlayerGuessedTheWord_{
+				PlayerGuessedTheWord: &protobuf.ServerPacket_PlayerGuessedTheWord{
+					Username: from.username,
+				},
+			},
+		}
+		from.scoreIncrement = (len(r.players) - r.guessersCount) * 100
+		from.hasGuessed = true
+		r.guessersCount++
+		r.broadcastToAll(serverPacket)
+		if len(r.players) == r.guessersCount {
+			r.transitionToTurnSummary()
+		}
+		return
+	}
 	serverPacket := &protobuf.ServerPacket{
 		Payload: &protobuf.ServerPacket_PlayerMessage_{
 			PlayerMessage: &protobuf.ServerPacket_PlayerMessage{
@@ -200,6 +241,10 @@ func (r *Room) handleTick(now time.Time) {
 func (r *Room) transitionToChoosingWord() {
 	r.phase = PHASE_CHOOSING_WORD
 	r.currentWord = ""
+	r.guessersCount = 0
+	for _, p := range r.players {
+		p.hasGuessed = false
+	}
 	if r.currentDrawer == nil {
 		r.drawerIndex = len(r.players) - 1
 	} else if r.drawerIndex == 0 {
@@ -308,47 +353,32 @@ func (r *Room) transitionToNextRound() {
 }
 
 func (r *Room) transitionToGameEnd() {
+	r.phase = PHASE_GAMEEND
 	leaderboard := &protobuf.ServerPacket{
 		Payload: &protobuf.ServerPacket_Leaderboard{},
 	}
 
 	r.broadcastToAll(leaderboard)
 	r.clearResources()
-	r.phase = PHASE_GAMEEND
 }
 
 func (r *Room) clearResources() {
-	// ! I need to make the lobby remove this game first before cleaning so there can't be a panic of writing to a closed channel
+	for _, p := range r.players {
+		p.cancelCtx()
+		close(p.inbox)
+		close(p.pingChan)
+		p.removeMe = nil
+		p.roomChan = nil
+		p.pingChan = nil
+
+	}
+	close(r.playerRemovalRequests)
+	close(r.inbox)
 	r.players = nil
 	r.wordChoices = nil
 	r.drawingHistory = nil
-	close(r.inbox)
-	close(r.ticks)
-	close(r.playerRemovalRequests)
-	close(r.joinRequests)
 }
 
-func (r *Room) broadcastPlayerLeft(username string) {
-	playerLeft := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerLeft_{
-			PlayerLeft: &protobuf.ServerPacket_PlayerLeft{
-				Username: username,
-			},
-		},
-	}
-	r.broadcastToAll(playerLeft)
-}
-
-func (r *Room) broadcastPlayerJoined(username string) {
-	playerJoined := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerJoined_{
-			PlayerJoined: &protobuf.ServerPacket_PlayerJoined{
-				Username: username,
-			},
-		},
-	}
-	r.broadcastToAll(playerJoined)
-}
 func (r *Room) broadcastToAll(serverPacket *protobuf.ServerPacket) {
 	bytesPacket, err := proto.Marshal(serverPacket)
 
@@ -358,7 +388,11 @@ func (r *Room) broadcastToAll(serverPacket *protobuf.ServerPacket) {
 	}
 
 	for _, p := range r.players {
-		p.inbox <- bytesPacket
+		select {
+		case p.inbox <- bytesPacket:
+		default:
+			r.removePlayer(p)
+		}
 	}
 }
 
@@ -372,7 +406,11 @@ func (r *Room) broadcastTo(serverPacket *protobuf.ServerPacket, player *Player) 
 
 	for _, p := range r.players {
 		if p == player {
-			p.inbox <- bytesPacket
+			select {
+			case p.inbox <- bytesPacket:
+			default:
+				r.removePlayer(p)
+			}
 			return
 		}
 	}
@@ -388,8 +426,11 @@ func (r *Room) broadcastToAllExcept(serverPacket *protobuf.ServerPacket, player 
 
 	for _, p := range r.players {
 		if p != player {
-			p.inbox <- bytesPacket
-			return
+			select {
+			case p.inbox <- bytesPacket:
+			default:
+				r.removePlayer(p)
+			}
 		}
 	}
 }

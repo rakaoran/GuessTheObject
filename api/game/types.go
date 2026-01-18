@@ -13,13 +13,21 @@ import (
 type RoomPhase int
 
 type WebsocketConnection interface {
-	Close(errCode string)
+	Close()
 	Write(data []byte) error
 	Read() ([]byte, error)
 	Ping() error
 }
 type RandomWordsGenerator interface {
 	Generate(count int) []string
+}
+type UniqueIdGenerator interface {
+	Generate() string
+	Dispose(word string)
+}
+
+type PeriodicTickerChannelCreator interface {
+	Create() <-chan time.Time
 }
 type UserGetter interface {
 	GetUserById(ctx context.Context, id string) (domain.User, error)
@@ -35,6 +43,9 @@ type Player struct {
 	inbox          chan []byte
 	pingChan       chan struct{}
 	roomChan       chan<- ClientPacketEnvelope
+	removeMe       chan<- *Player
+	ctx            context.Context
+	cancelCtx      context.CancelFunc
 }
 
 type ClientPacketEnvelope struct {
@@ -58,6 +69,7 @@ type Room struct {
 	roundsCount           int
 	wordsCount            int
 	phase                 RoomPhase
+	guessersCount         int
 	round                 int
 	nextTick              time.Time
 	choosingWordDuration  time.Duration
@@ -67,10 +79,26 @@ type Room struct {
 	drawingHistory        [][]byte
 	inbox                 chan ClientPacketEnvelope
 	ticks                 chan time.Time
+	pingPlayers           chan struct{}
 	playerRemovalRequests chan *Player
 	joinRequests          chan RoomJoinRequest
+	randomWordsGenerator  RandomWordsGenerator
+}
 
-	randomWordsGenerator RandomWordsGenerator
+type RoomDescription struct {
+	id           string
+	playersCount int
+	maxPlayers   int
+	started      bool
+}
+
+type Lobby struct {
+	rooms          map[string]*Room
+	addRoomChan    chan *Room
+	removeRoomChan chan *Room
+	pingPlayers    chan struct{}
+	pubGamesReq    chan chan []RoomDescription
+	idGenerator    UniqueIdGenerator
 }
 
 type Idgen struct {
