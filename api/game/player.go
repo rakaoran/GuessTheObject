@@ -2,9 +2,37 @@ package game
 
 import (
 	"api/domain/protobuf"
+	"context"
 
+	"golang.org/x/time/rate"
 	"google.golang.org/protobuf/proto"
 )
+
+func NewPlayer(id string, username string) *Player {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Player{
+		id:          id,
+		username:    username,
+		rateLimiter: *rate.NewLimiter(rate.Limit(2), 5),
+		pingChan:    make(chan struct{}, 1),
+		inbox:       make(chan []byte, 1024),
+		ctx:         ctx,
+		cancelCtx:   cancel,
+	}
+}
+
+// id             string
+// username       string
+// score          int
+// scoreIncrement int
+// hasGuessed     bool
+// rateLimiter    rate.Limiter
+// inbox          chan []byte
+// pingChan       chan struct{}
+// roomChan       chan<- ClientPacketEnvelope
+// removeMe       chan<- *Player
+// ctx            context.Context
+// cancelCtx      context.CancelFunc
 
 func (p *Player) ReadPump(socket WebsocketConnection) {
 	defer socket.Close()
@@ -23,6 +51,11 @@ func (p *Player) ReadPump(socket WebsocketConnection) {
 		if err != nil {
 			// TODO
 			continue
+		}
+		if _, ok := packet.Payload.(*protobuf.ClientPacket_PlayerMessage_); ok {
+			if !p.rateLimiter.Allow() {
+				continue
+			}
 		}
 		envelope := ClientPacketEnvelope{clientPacket: packet, from: p}
 		select {

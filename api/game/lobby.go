@@ -22,16 +22,12 @@ func (l *Lobby) LobbyActor(tickerCreator PeriodicTickerChannelCreator) {
 			l.addRoom(room)
 		case room := <-l.removeRoomChan:
 			l.removeRoom(room)
+		case desc := <-l.roomDescUpdate:
+			l.pubRoomsDescriptions[desc.id] = desc
 		case pubGamesReq := <-l.pubGamesReq:
 			x := make([]RoomDescription, 0, len(l.rooms))
-			for _, room := range l.rooms {
-				if room.private {
-					continue
-				}
-				// here it's safe to read without locks, even tho it's a race condition,
-				// a difference in the number by 1 or 2 is usually harmless
-				// as the user knows that it can have already changed and needs to refresh
-				x = append(x, RoomDescription{id: room.id, playersCount: len(l.rooms), maxPlayers: room.maxPlayers, started: room.phase != PHASE_PENDING})
+			for _, description := range l.pubRoomsDescriptions {
+				x = append(x, description)
 			}
 			pubGamesReq <- x
 		}

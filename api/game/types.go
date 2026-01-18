@@ -82,6 +82,7 @@ type Room struct {
 	pingPlayers           chan struct{}
 	playerRemovalRequests chan *Player
 	joinRequests          chan RoomJoinRequest
+	updateDescriptionChan chan<- RoomDescription
 	randomWordsGenerator  RandomWordsGenerator
 }
 
@@ -93,12 +94,14 @@ type RoomDescription struct {
 }
 
 type Lobby struct {
-	rooms          map[string]*Room
-	addRoomChan    chan *Room
-	removeRoomChan chan *Room
-	pingPlayers    chan struct{}
-	pubGamesReq    chan chan []RoomDescription
-	idGenerator    UniqueIdGenerator
+	rooms                map[string]*Room
+	pubRoomsDescriptions map[string]RoomDescription
+	addRoomChan          chan *Room
+	removeRoomChan       chan *Room
+	pingPlayers          chan struct{}
+	pubGamesReq          chan chan []RoomDescription
+	roomDescUpdate       <-chan RoomDescription
+	idGenerator          UniqueIdGenerator
 }
 
 type Idgen struct {

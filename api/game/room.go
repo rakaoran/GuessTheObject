@@ -41,7 +41,8 @@ func (r *Room) addPlayer(p *Player) error {
 	x.DrawingHistory = r.drawingHistory
 
 	r.broadcastTo(initialRoomSnapshot, p)
-
+	p.roomChan = r.inbox
+	p.removeMe = r.playerRemovalRequests
 	playerJoined := &protobuf.ServerPacket{
 		Payload: &protobuf.ServerPacket_PlayerJoined_{
 			PlayerJoined: &protobuf.ServerPacket_PlayerJoined{
@@ -50,6 +51,7 @@ func (r *Room) addPlayer(p *Player) error {
 		},
 	}
 	r.broadcastToAll(playerJoined)
+	r.updateDescription()
 	return nil
 }
 
@@ -79,6 +81,7 @@ func (r *Room) removePlayer(toRemove *Player) {
 				},
 			}
 			r.broadcastToAll(playerLeft)
+			r.updateDescription()
 			return
 		}
 	}
@@ -144,6 +147,7 @@ func (r *Room) handleDrawingData(drawingData *protobuf.DrawingData, from *Player
 }
 
 func (r *Room) handleStartGame(from *Player) {
+	r.updateDescription()
 	if r.host != from {
 		// TODO
 		return
@@ -432,5 +436,18 @@ func (r *Room) broadcastToAllExcept(serverPacket *protobuf.ServerPacket, player 
 				r.removePlayer(p)
 			}
 		}
+	}
+}
+
+func (r *Room) updateDescription() {
+	desc := RoomDescription{
+		id:           r.id,
+		playersCount: len(r.players),
+		maxPlayers:   r.maxPlayers,
+		started:      r.phase != PHASE_PENDING,
+	}
+	select {
+	case r.updateDescriptionChan <- desc:
+	default:
 	}
 }
