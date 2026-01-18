@@ -62,7 +62,7 @@ func TestReadPump(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
 		player := NewPlayer("id", "username")
-		player.roomChan = make(chan<- ClientPacketEnvelope)
+		player.roomChan = make(chan ClientPacketEnvelope)
 		clientPacket := &protobuf.ClientPacket{
 			Payload: &protobuf.ClientPacket_DrawingData{
 				DrawingData: &protobuf.DrawingData{

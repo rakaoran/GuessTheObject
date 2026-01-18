@@ -27,7 +27,7 @@ type UniqueIdGenerator interface {
 }
 
 type PeriodicTickerChannelCreator interface {
-	Create() <-chan time.Time
+	Create(duration time.Duration) <-chan time.Time
 }
 type UserGetter interface {
 	GetUserById(ctx context.Context, id string) (domain.User, error)
@@ -42,8 +42,8 @@ type Player struct {
 	rateLimiter    rate.Limiter
 	inbox          chan []byte
 	pingChan       chan struct{}
-	roomChan       chan<- ClientPacketEnvelope
-	removeMe       chan<- *Player
+	roomChan       chan ClientPacketEnvelope
+	removeMe       chan *Player
 	ctx            context.Context
 	cancelCtx      context.CancelFunc
 }
@@ -54,6 +54,7 @@ type ClientPacketEnvelope struct {
 }
 
 type RoomJoinRequest struct {
+	roomId  string
 	player  *Player
 	errChan chan error
 }
@@ -82,7 +83,8 @@ type Room struct {
 	pingPlayers           chan struct{}
 	playerRemovalRequests chan *Player
 	joinRequests          chan RoomJoinRequest
-	updateDescriptionChan chan<- RoomDescription
+	updateDescriptionChan chan RoomDescription
+	removeMe              chan *Room
 	randomWordsGenerator  RandomWordsGenerator
 }
 
@@ -100,7 +102,8 @@ type Lobby struct {
 	removeRoomChan       chan *Room
 	pingPlayers          chan struct{}
 	pubGamesReq          chan chan []RoomDescription
-	roomDescUpdate       <-chan RoomDescription
+	roomDescUpdate       chan RoomDescription
+	joinRoomReq          chan RoomJoinRequest
 	idGenerator          UniqueIdGenerator
 }
 

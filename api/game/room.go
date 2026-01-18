@@ -113,6 +113,7 @@ func (r *Room) RoomActor() {
 			if err != nil {
 				joinReq.errChan <- err
 			}
+			close(joinReq.errChan)
 		}
 
 	}
@@ -373,11 +374,10 @@ func (r *Room) clearResources() {
 		close(p.pingChan)
 		p.removeMe = nil
 		p.roomChan = nil
-		p.pingChan = nil
-
 	}
-	close(r.playerRemovalRequests)
+	// safe to close
 	close(r.inbox)
+	r.removeMe <- r
 	r.players = nil
 	r.wordChoices = nil
 	r.drawingHistory = nil
@@ -440,6 +440,9 @@ func (r *Room) broadcastToAllExcept(serverPacket *protobuf.ServerPacket, player 
 }
 
 func (r *Room) updateDescription() {
+	if r.private {
+		return
+	}
 	desc := RoomDescription{
 		id:           r.id,
 		playersCount: len(r.players),
