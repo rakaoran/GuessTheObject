@@ -21,19 +21,6 @@ func NewPlayer(id string, username string) *Player {
 	}
 }
 
-// id             string
-// username       string
-// score          int
-// scoreIncrement int
-// hasGuessed     bool
-// rateLimiter    rate.Limiter
-// inbox          chan []byte
-// pingChan       chan struct{}
-// roomChan       chan<- ClientPacketEnvelope
-// removeMe       chan<- *Player
-// ctx            context.Context
-// cancelCtx      context.CancelFunc
-
 func (p *Player) ReadPump(socket WebsocketConnection) {
 	defer socket.Close()
 	for {
