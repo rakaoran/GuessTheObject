@@ -34,7 +34,7 @@ func TestReadPump(t *testing.T) {
 		wg.Go(func() {
 			player.ReadPump(mockSocket)
 		})
-		// on read, the goroutine must release
+		// on read error, the goroutine must release
 		wg.Wait()
 
 		assert.Equal(t, player, <-removeMe)

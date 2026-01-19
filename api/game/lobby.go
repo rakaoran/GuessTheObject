@@ -1,10 +1,34 @@
 package game
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
-func (l *Lobby) LobbyActor(tickerCreator PeriodicTickerChannelCreator) {
-	ticker := tickerCreator.Create(time.Second)
-	pingTicker := tickerCreator.Create(time.Second * 30)
+func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreator) *Lobby {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Lobby{
+		rooms:                map[string]*Room{},
+		pubRoomsDescriptions: map[string]RoomDescription{},
+		addRoomChan:          make(chan *Room, 256),
+		removeRoomChan:       make(chan *Room, 256),
+		pubGamesReq:          make(chan chan []RoomDescription, 256),
+		roomDescUpdate:       make(chan RoomDescription, 256),
+		joinRoomReq:          make(chan RoomJoinRequest, 1024),
+		ctx:                  ctx,
+		cancelCtx:            cancel,
+		idGenerator:          idgen,
+		tickerCreator:        tickerCreator,
+	}
+}
+
+func (l *Lobby) LobbyActor(started chan struct{}) {
+	ticker := l.tickerCreator.Create(time.Second)
+	pingTicker := l.tickerCreator.Create(time.Second * 30)
+	s := struct{}{}
+
+	close(started)
+
 	for {
 		select {
 		case now := <-ticker:
@@ -17,7 +41,7 @@ func (l *Lobby) LobbyActor(tickerCreator PeriodicTickerChannelCreator) {
 		case <-pingTicker:
 			for _, r := range l.rooms {
 				select {
-				case r.pingPlayers <- struct{}{}:
+				case r.pingPlayers <- s:
 				default:
 				}
 			}
@@ -44,35 +68,60 @@ func (l *Lobby) handlAddRoom(r *Room) {
 	id := l.idGenerator.Generate()
 	r.removeMe = l.removeRoomChan
 	r.updateDescriptionChan = l.roomDescUpdate
+	r.joinRequests = l.joinRoomReq
+	r.id = id
+
 	l.rooms[id] = r
+
+	if r.private {
+		return
+	}
+	l.pubRoomsDescriptions[id] = RoomDescription{
+		id:           id,
+		playersCount: len(r.players),
+		maxPlayers:   r.maxPlayers,
+		started:      r.phase != PHASE_PENDING,
+	}
 }
 
 func (l *Lobby) handleRemoveRoom(toRemove *Room) {
+	println("NIGGA ", toRemove.id)
 	delete(l.rooms, toRemove.id)
+	delete(l.pubRoomsDescriptions, toRemove.id)
 	close(toRemove.ticks)
 	close(toRemove.pingPlayers)
 	close(toRemove.joinRequests)
+	l.idGenerator.Dispose(toRemove.id)
 }
 
 func (l *Lobby) handleGetPublicRoomsDescription(req chan []RoomDescription) {
-	x := make([]RoomDescription, 0, len(l.rooms))
+	x := make([]RoomDescription, 0, len(l.pubRoomsDescriptions))
 	for _, description := range l.pubRoomsDescriptions {
 		x = append(x, description)
 	}
-	req <- x
+	select {
+	case req <- x:
+	default:
+	}
 }
 
 func (l *Lobby) handleJoinReq(joinReq RoomJoinRequest) {
 	room, ok := l.rooms[joinReq.roomId]
 	if !ok {
-		joinReq.errChan <- ErrRoomNotFound
-		close(joinReq.errChan)
+		select {
+		case joinReq.errChan <- ErrRoomNotFound:
+			close(joinReq.errChan)
+		default:
+		}
 	}
 	select {
 	case room.joinRequests <- joinReq:
 	default:
-		joinReq.errChan <- ErrRoomFull
-		close(joinReq.errChan)
+		select {
+		case joinReq.errChan <- ErrRoomFull:
+			close(joinReq.errChan)
+		default:
+		}
 
 	}
 }

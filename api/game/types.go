@@ -27,7 +27,7 @@ type UniqueIdGenerator interface {
 }
 
 type PeriodicTickerChannelCreator interface {
-	Create(duration time.Duration) <-chan time.Time
+	Create(duration time.Duration) chan time.Time
 }
 type UserGetter interface {
 	GetUserById(ctx context.Context, id string) (domain.User, error)
@@ -100,11 +100,13 @@ type Lobby struct {
 	pubRoomsDescriptions map[string]RoomDescription
 	addRoomChan          chan *Room
 	removeRoomChan       chan *Room
-	pingPlayers          chan struct{}
 	pubGamesReq          chan chan []RoomDescription
 	roomDescUpdate       chan RoomDescription
 	joinRoomReq          chan RoomJoinRequest
+	ctx                  context.Context
+	cancelCtx            context.CancelFunc
 	idGenerator          UniqueIdGenerator
+	tickerCreator        PeriodicTickerChannelCreator
 }
 
 type Idgen struct {

@@ -15,6 +15,45 @@ const (
 	PHASE_GAMEEND
 )
 
+func NewRoom(
+	host *Player,
+	private bool,
+	maxPlayers int,
+	roundsCount int,
+	wordsCount int,
+	choosingWordDuration time.Duration,
+	drawingDuration time.Duration,
+	randomWordsGenerator RandomWordsGenerator,
+) *Room {
+	r := &Room{
+		private:              private,
+		host:                 host,
+		players:              []*Player{host},
+		drawerIndex:          0,
+		currentDrawer:        host,
+		maxPlayers:           maxPlayers,
+		roundsCount:          roundsCount,
+		wordsCount:           wordsCount,
+		phase:                PHASE_PENDING,
+		guessersCount:        0,
+		round:                1,
+		nextTick:             time.Now().Add(time.Minute * 15),
+		choosingWordDuration: choosingWordDuration,
+		drawingDuration:      drawingDuration,
+		wordChoices:          nil,
+		drawingHistory:       make([][]byte, 0, 1024),
+
+		inbox:                 make(chan ClientPacketEnvelope, 2048),
+		ticks:                 make(chan time.Time, 1),
+		pingPlayers:           make(chan struct{}, 1),
+		playerRemovalRequests: make(chan *Player, 20),
+		joinRequests:          make(chan RoomJoinRequest, 20),
+		randomWordsGenerator:  randomWordsGenerator,
+	}
+
+	return r
+}
+
 func (r *Room) addPlayer(p *Player) error {
 	if len(r.players) >= r.maxPlayers {
 		return ErrRoomFull
