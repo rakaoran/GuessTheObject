@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
 )
 
 func setupLobby(_ *testing.T) (*lobby, *MockUniqueIdGenerator, *MockPeriodicTickerChannelCreator, chan time.Time, chan time.Time) {
@@ -42,6 +41,23 @@ func TestLobby_RequestAddAndRunRoom(t *testing.T) {
 	}
 }
 
+func TestLobby_RemoveRoom(t *testing.T) {
+	t.Parallel()
+	l, _, _, _, _ := setupLobby(t)
+
+	// We don't need to run the actor here, just testing the method pushes to the channel
+	go func() {
+		l.RemoveRoom("id-haha")
+	}()
+
+	select {
+	case id := <-l.removeRoomChan:
+		assert.Equal(t, "id-haha", id)
+	case <-time.After(time.Second * 5):
+		assert.Fail(t, "timed out waiting for room addition")
+	}
+}
+
 func TestLobby_ForwardPlayerJoinRequestToRoom(t *testing.T) {
 	t.Parallel()
 	l, _, _, _, _ := setupLobby(t)
@@ -64,23 +80,28 @@ func TestLobbyActor(t *testing.T) {
 
 	t.Run("Ticker Ticks Rooms", func(t *testing.T) {
 		t.Parallel()
-		l, _, _, tickChan, _ := setupLobby(t)
+		l, mockIdGen, _, tickChan, _ := setupLobby(t)
+		now := time.Now()
 
 		mockRoom := &MockRoom{}
-		mockRoom.On("Tick", mock.Anything).Return()
-
-		// Manually inject a room into the map to avoid going through the AddRoom flow for this simple test
-		l.rooms["room1"] = mockRoom
+		mockIdGen.On("Generate").Return("room1")
+		mockRoom.On("SetParentLobby", l).Return()
+		mockRoom.On("SetId", "room1").Return()
+		mockRoom.On("Description").Return(roomDescription{id: "room1", private: false})
+		mockRoom.On("GameLoop").Return()
+		mockRoom.On("Tick", now).Return()
 
 		started := make(chan struct{})
 		go l.LobbyActor(started)
 		<-started
 
-		now := time.Now()
-		tickChan <- now
-		tickChan <- now
+		l.addAndRunRoomChan <- mockRoom
+		time.Sleep(50 * time.Millisecond)
 
-		mockRoom.AssertCalled(t, "Tick", now)
+		tickChan <- now
+		time.Sleep(50 * time.Millisecond)
+
+		mockRoom.AssertExpectations(t)
 	})
 
 	t.Run("Ping Ticker Pings Players", func(t *testing.T) {

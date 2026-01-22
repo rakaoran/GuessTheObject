@@ -19,6 +19,13 @@ func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreato
 	}
 }
 
+func (l *lobby) RequestUpdateDescription(desc roomDescription) {
+	select {
+	case l.roomDescUpdate <- desc:
+	default:
+	}
+}
+
 func (l *lobby) RequestAddAndRunRoom(ctx context.Context, r Room) {
 	select {
 	case l.addAndRunRoomChan <- r:
@@ -31,7 +38,10 @@ func (l *lobby) ForwardPlayerJoinRequestToRoom(ctx context.Context, jreq roomJoi
 	case <-ctx.Done():
 	case l.roomJoinReqs <- jreq:
 	}
+}
 
+func (l *lobby) RemoveRoom(roomId string) {
+	l.removeRoomChan <- roomId
 }
 
 func (l *lobby) LobbyActor(started chan struct{}) {

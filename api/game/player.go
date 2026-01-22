@@ -34,7 +34,6 @@ func (p *player) ReadPump(socket WebsocketConnection) {
 		packet := &protobuf.ClientPacket{}
 		err = proto.Unmarshal(data, packet)
 		if err != nil {
-			// TODO
 			continue
 		}
 		if _, ok := packet.Payload.(*protobuf.ClientPacket_PlayerMessage_); ok {

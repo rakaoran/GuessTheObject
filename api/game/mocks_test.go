@@ -95,6 +95,14 @@ func (m *MockPlayer) Cancel() {
 	m.Called()
 }
 
+func (m *MockPlayer) CancelAndRelease() {
+	m.Called()
+}
+func (m *MockPlayer) Username() string {
+	args := m.Called()
+	return args.String(0)
+}
+
 type MockRoom struct {
 	mock.Mock
 }
@@ -144,8 +152,17 @@ type MockLobby struct {
 	mock.Mock
 }
 
+func (l *MockLobby) RequestUpdateDescription(desc roomDescription) {
+	l.Called(desc)
+
+}
+
 func (m *MockLobby) RequestAddAndRunRoom(ctx context.Context, r Room, host Player) {
 	m.Called(ctx, r, host)
+}
+
+func (m *MockLobby) RemoveRoom(roomId string) {
+	m.Called(roomId)
 }
 
 func (m *MockLobby) ForwardPlayerJoinRequestToRoom(

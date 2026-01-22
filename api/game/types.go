@@ -1,3 +1,12 @@
+//go:generate mockery --name=WebsocketConnection --filename=types.go --output=. --outpkg=game --inpackage --structname=MockWebsocketConnection --testonly
+//go:generate mockery --name=RandomWordsGenerator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockRandomWordsGenerator --testonly
+//go:generate mockery --name=UniqueIdGenerator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockUniqueIdGenerator --testonly
+//go:generate mockery --name=PeriodicTickerChannelCreator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockPeriodicTickerChannelCreator --testonly
+//go:generate mockery --name=UserGetter --filename=types.go --output=. --outpkg=game --inpackage --structname=MockUserGetter --testonly
+//go:generate mockery --name=Player --filename=types.go --output=. --outpkg=game --inpackage --structname=MockPlayer --testonly
+//go:generate mockery --name=Room --filename=types.go --output=. --outpkg=game --inpackage --structname=MockRoom --testonly
+//go:generate mockery --name=Lobby --filename=types.go --output=. --outpkg=game --inpackage --structname=MockLobby --testonly
+
 package game
 
 import (
@@ -57,6 +66,8 @@ type Room interface {
 type Lobby interface {
 	RequestAddAndRunRoom(ctx context.Context, r Room)
 	ForwardPlayerJoinRequestToRoom(ctx context.Context, jreq roomJoinRequest)
+	RequestUpdateDescription(desc roomDescription)
+	RemoveRoom(roomId string)
 }
 
 type roomJoinRequest struct {
@@ -86,7 +97,7 @@ type room struct {
 	private               bool
 	id                    string
 	host                  string
-	players               []playerGameState
+	playerStates          []*playerGameState
 	drawerIndex           int
 	currentDrawer         string
 	maxPlayers            int
@@ -101,6 +112,8 @@ type room struct {
 	currentWord           string
 	wordChoices           []string
 	drawingHistory        [][]byte
+	dataSendTasks         []dataSendTask
+	pingSendTasks         []pingSendTask
 	inbox                 chan ClientPacketEnvelope
 	ticks                 chan time.Time
 	pingPlayers           chan struct{}
@@ -112,11 +125,21 @@ type room struct {
 	parentLobby           Lobby
 }
 
+type dataSendTask struct {
+	to   Player
+	data []byte
+}
+
+type pingSendTask struct {
+	to Player
+}
+
 type playerGameState struct {
-	player      Player
-	username    string
-	score       int
-	hasGuessesd bool
+	player         Player
+	username       string
+	score          int
+	hasGuessed     bool
+	scoreIncrement int
 }
 
 type roomDescription struct {
