@@ -1,12 +1,3 @@
-//go:generate mockery --name=WebsocketConnection --filename=types.go --output=. --outpkg=game --inpackage --structname=MockWebsocketConnection --testonly
-//go:generate mockery --name=RandomWordsGenerator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockRandomWordsGenerator --testonly
-//go:generate mockery --name=UniqueIdGenerator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockUniqueIdGenerator --testonly
-//go:generate mockery --name=PeriodicTickerChannelCreator --filename=types.go --output=. --outpkg=game --inpackage --structname=MockPeriodicTickerChannelCreator --testonly
-//go:generate mockery --name=UserGetter --filename=types.go --output=. --outpkg=game --inpackage --structname=MockUserGetter --testonly
-//go:generate mockery --name=Player --filename=types.go --output=. --outpkg=game --inpackage --structname=MockPlayer --testonly
-//go:generate mockery --name=Room --filename=types.go --output=. --outpkg=game --inpackage --structname=MockRoom --testonly
-//go:generate mockery --name=Lobby --filename=types.go --output=. --outpkg=game --inpackage --structname=MockLobby --testonly
-
 package game
 
 import (
@@ -118,8 +109,6 @@ type room struct {
 	ticks                 chan time.Time
 	pingPlayers           chan struct{}
 	playerRemovalRequests chan Player
-	updateDescriptionChan chan roomDescription
-	removeMe              chan Player
 	joinReqs              chan roomJoinRequest
 	randomWordsGenerator  RandomWordsGenerator
 	parentLobby           Lobby

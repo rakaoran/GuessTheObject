@@ -48,6 +48,7 @@ func NewRoom(
 		ticks:                 make(chan time.Time, 1),
 		pingPlayers:           make(chan struct{}, 1),
 		playerRemovalRequests: make(chan Player, 20),
+		joinReqs:              make(chan roomJoinRequest, maxPlayers),
 		randomWordsGenerator:  randomWordsGenerator,
 	}
 
@@ -71,7 +72,7 @@ func (r *room) Send(ctx context.Context, e ClientPacketEnvelope) {
 func (r *room) RemoveMe(ctx context.Context, p Player) {
 	select {
 	case <-ctx.Done():
-	case r.removeMe <- p:
+	case r.playerRemovalRequests <- p:
 	}
 }
 
@@ -121,19 +122,29 @@ func (r *room) GameLoop() {
 			return
 		}
 		select {
-		case <-r.pingPlayers:
+		case _, ok := <-r.pingPlayers:
+			if !ok {
+				return
+			}
 			r.handlePingPlayers()
 
 		case envelope := <-r.inbox:
 			r.handleEnvelope(envelope)
 
-		case now := <-r.ticks:
+		case now, ok := <-r.ticks:
+			if !ok {
+				return
+			}
 			r.handleTick(now)
 
-		case p := <-r.playerRemovalRequests:
+		case p, ok := <-r.playerRemovalRequests:
+			if !ok {
+				return
+			}
 			r.handleRemovePlayer(p)
 		}
 
+		r.executeAndClearTasks()
 	}
 }
 
@@ -154,6 +165,7 @@ func (r *room) executeAndClearTasks() {
 		if err != nil {
 			r.handleRemovePlayer(to)
 		}
+		i++
 	}
 
 	clear(r.dataSendTasks)

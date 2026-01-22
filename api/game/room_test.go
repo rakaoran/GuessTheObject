@@ -2,6 +2,7 @@ package game
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -106,8 +107,6 @@ func TestRoom_RequestJoin(t *testing.T) {
 	r, _, _ := setupRoom(t)
 	req := roomJoinRequest{roomId: "room1"}
 
-	// ⚠️ If joinReqs isn't initialized, this will hang forever
-	// We use a small timeout to fail fast instead of hanging the test suite
 	done := make(chan struct{})
 	go func() {
 		r.RequestJoin(req)
@@ -116,21 +115,12 @@ func TestRoom_RequestJoin(t *testing.T) {
 
 	select {
 	case <-done:
-		// RequestJoin finished (pushed to channel)
 	case <-time.After(100 * time.Millisecond):
 		assert.Fail(t, "RequestJoin blocked too long (channel probably nil or full)")
 		return
 	}
 
-	// Verify content
-	select {
-	case val := <-r.joinReqs:
-		assert.Equal(t, req, val)
-	default:
-		// If we reached here, maybe the channel is nil (reading from nil blocks too)
-		// But in a test we can't easily check 'is nil' on a private field without reflection
-		// or just assuming the select above would catch it.
-	}
+	assert.Equal(t, req, <-r.joinReqs)
 }
 
 func TestRoom_RemoveMe(t *testing.T) {
@@ -138,7 +128,6 @@ func TestRoom_RemoveMe(t *testing.T) {
 	p := &MockPlayer{}
 	ctx := context.Background()
 
-	// ⚠️ If removeMe isn't initialized, this blocks forever
 	done := make(chan struct{})
 	go func() {
 		r.RemoveMe(ctx, p)
@@ -147,7 +136,6 @@ func TestRoom_RemoveMe(t *testing.T) {
 
 	select {
 	case <-done:
-		// success
 	case <-time.After(100 * time.Millisecond):
 		assert.Fail(t, "RemoveMe blocked too long (channel probably nil)")
 	}
@@ -156,8 +144,20 @@ func TestRoom_RemoveMe(t *testing.T) {
 func TestRoom_CloseAndRelease(t *testing.T) {
 	r, _, _ := setupRoom(t)
 
-	// ⚠️ If any channel closed here is nil, this will PANIC
 	assert.NotPanics(t, func() {
 		r.CloseAndRelease()
 	}, "CloseAndRelease panicked (likely closing a nil channel)")
+
+	_, ok := <-r.pingPlayers
+
+	assert.Falsef(t, ok, "Channel is still non closed")
+}
+
+func TestRoom_GameLoop(t *testing.T) {
+	r, _, _ := setupRoom(t)
+	wg := sync.WaitGroup{}
+
+	wg.Go(func() { r.GameLoop() })
+	r.CloseAndRelease()
+	wg.Wait()
 }
