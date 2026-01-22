@@ -5,27 +5,38 @@ import (
 	"time"
 )
 
-func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreator) *Lobby {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &Lobby{
-		rooms:                map[string]*Room{},
-		pubRoomsDescriptions: map[string]RoomDescription{},
-		addRoomChan:          make(chan *Room, 256),
-		removeRoomChan:       make(chan *Room, 256),
-		pubGamesReq:          make(chan chan []RoomDescription, 256),
-		roomDescUpdate:       make(chan RoomDescription, 256),
-		joinRoomReq:          make(chan RoomJoinRequest, 1024),
-		ctx:                  ctx,
-		cancelCtx:            cancel,
+func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreator) *lobby {
+	return &lobby{
+		rooms:                map[string]Room{},
+		pubRoomsDescriptions: map[string]roomDescription{},
+		addAndRunRoomChan:    make(chan Room, 32),
+		removeRoomChan:       make(chan string, 32),
+		pubGamesReq:          make(chan chan []roomDescription, 256),
+		roomDescUpdate:       make(chan roomDescription, 256),
+		roomJoinReqs:         make(chan roomJoinRequest, 256),
 		idGenerator:          idgen,
 		tickerCreator:        tickerCreator,
 	}
 }
 
-func (l *Lobby) LobbyActor(started chan struct{}) {
+func (l *lobby) RequestAddAndRunRoom(ctx context.Context, r Room) {
+	select {
+	case l.addAndRunRoomChan <- r:
+	case <-ctx.Done():
+	}
+
+}
+func (l *lobby) ForwardPlayerJoinRequestToRoom(ctx context.Context, jreq roomJoinRequest) {
+	select {
+	case <-ctx.Done():
+	case l.roomJoinReqs <- jreq:
+	}
+
+}
+
+func (l *lobby) LobbyActor(started chan struct{}) {
 	ticker := l.tickerCreator.Create(time.Second)
 	pingTicker := l.tickerCreator.Create(time.Second * 30)
-	s := struct{}{}
 
 	close(started)
 
@@ -33,21 +44,15 @@ func (l *Lobby) LobbyActor(started chan struct{}) {
 		select {
 		case now := <-ticker:
 			for _, r := range l.rooms {
-				select {
-				case r.ticks <- now:
-				default:
-				}
+				r.Tick(now)
 			}
 		case <-pingTicker:
 			for _, r := range l.rooms {
-				select {
-				case r.pingPlayers <- s:
-				default:
-				}
+				r.PingPlayers()
 			}
 
-		case room := <-l.addRoomChan:
-			l.handlAddRoom(room)
+		case room := <-l.addAndRunRoomChan:
+			l.handleAddAndRunRoom(room)
 
 		case room := <-l.removeRoomChan:
 			l.handleRemoveRoom(room)
@@ -58,70 +63,50 @@ func (l *Lobby) LobbyActor(started chan struct{}) {
 		case pubGamesReq := <-l.pubGamesReq:
 			l.handleGetPublicRoomsDescription(pubGamesReq)
 
-		case joinReq := <-l.joinRoomReq:
+		case joinReq := <-l.roomJoinReqs:
 			l.handleJoinReq(joinReq)
 		}
 	}
 }
 
-func (l *Lobby) handlAddRoom(r *Room) {
+func (l *lobby) handleAddAndRunRoom(r Room) {
 	id := l.idGenerator.Generate()
-	r.removeMe = l.removeRoomChan
-	r.updateDescriptionChan = l.roomDescUpdate
-	r.joinRequests = l.joinRoomReq
-	r.id = id
+	r.SetParentLobby(l)
 
 	l.rooms[id] = r
-
-	if r.private {
+	r.SetId(id)
+	rDesc := r.Description()
+	go r.GameLoop()
+	if rDesc.private {
 		return
 	}
-	l.pubRoomsDescriptions[id] = RoomDescription{
-		id:           id,
-		playersCount: len(r.players),
-		maxPlayers:   r.maxPlayers,
-		started:      r.phase != PHASE_PENDING,
-	}
+	l.pubRoomsDescriptions[id] = rDesc
 }
 
-func (l *Lobby) handleRemoveRoom(toRemove *Room) {
-	println("NIGGA ", toRemove.id)
-	delete(l.rooms, toRemove.id)
-	delete(l.pubRoomsDescriptions, toRemove.id)
-	close(toRemove.ticks)
-	close(toRemove.pingPlayers)
-	close(toRemove.joinRequests)
-	l.idGenerator.Dispose(toRemove.id)
+func (l *lobby) handleRemoveRoom(toRemoveId string) {
+	room, _ := l.rooms[toRemoveId]
+	delete(l.rooms, toRemoveId)
+	delete(l.pubRoomsDescriptions, toRemoveId)
+	room.CloseAndRelease()
+	l.idGenerator.Dispose(toRemoveId)
 }
 
-func (l *Lobby) handleGetPublicRoomsDescription(req chan []RoomDescription) {
-	x := make([]RoomDescription, 0, len(l.pubRoomsDescriptions))
+func (l *lobby) handleGetPublicRoomsDescription(req chan []roomDescription) {
+	x := make([]roomDescription, 0, len(l.pubRoomsDescriptions))
 	for _, description := range l.pubRoomsDescriptions {
 		x = append(x, description)
 	}
-	select {
-	case req <- x:
-	default:
-	}
+
+	req <- x
+
 }
 
-func (l *Lobby) handleJoinReq(joinReq RoomJoinRequest) {
+func (l *lobby) handleJoinReq(joinReq roomJoinRequest) {
 	room, ok := l.rooms[joinReq.roomId]
 	if !ok {
-		select {
-		case joinReq.errChan <- ErrRoomNotFound:
-			close(joinReq.errChan)
-		default:
-		}
+		joinReq.errChan <- ErrRoomNotFound
+		close(joinReq.errChan)
+		return
 	}
-	select {
-	case room.joinRequests <- joinReq:
-	default:
-		select {
-		case joinReq.errChan <- ErrRoomFull:
-			close(joinReq.errChan)
-		default:
-		}
-
-	}
+	room.RequestJoin(joinReq)
 }

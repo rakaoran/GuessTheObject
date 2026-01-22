@@ -8,9 +8,9 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-func NewPlayer(id string, username string) *Player {
+func NewPlayer(id string, username string) *player {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Player{
+	return &player{
 		id:          id,
 		username:    username,
 		rateLimiter: *rate.NewLimiter(rate.Limit(2), 5),
@@ -21,17 +21,15 @@ func NewPlayer(id string, username string) *Player {
 	}
 }
 
-func (p *Player) ReadPump(socket WebsocketConnection) {
+func (p *player) ReadPump(socket WebsocketConnection) {
 	defer socket.Close()
+	defer p.cancelCtx()
 	for {
+
 		data, err := socket.Read()
 		if err != nil {
-			select {
-			case p.removeMe <- p:
-				return
-			case <-p.ctx.Done():
-				return
-			}
+			p.room.RemoveMe(p.ctx, p)
+			return
 		}
 		packet := &protobuf.ClientPacket{}
 		err = proto.Unmarshal(data, packet)
@@ -44,17 +42,19 @@ func (p *Player) ReadPump(socket WebsocketConnection) {
 				continue
 			}
 		}
-		envelope := ClientPacketEnvelope{clientPacket: packet, from: p}
+		envelope := ClientPacketEnvelope{clientPacket: packet, from: p.username}
+		p.room.Send(p.ctx, envelope)
 		select {
-		case p.roomChan <- envelope:
 		case <-p.ctx.Done():
 			return
+		default:
 		}
 	}
 }
 
-func (p *Player) WritePump(socket WebsocketConnection) {
+func (p *player) WritePump(socket WebsocketConnection) {
 	defer socket.Close()
+	defer p.cancelCtx()
 	for {
 		select {
 		case marshalledServerPacket, ok := <-p.inbox:
@@ -63,12 +63,8 @@ func (p *Player) WritePump(socket WebsocketConnection) {
 			}
 			err := socket.Write(marshalledServerPacket)
 			if err != nil {
-				select {
-				case p.removeMe <- p:
-					return
-				case <-p.ctx.Done():
-					return
-				}
+				p.room.RemoveMe(p.ctx, p)
+				return
 			}
 		case _, ok := <-p.pingChan:
 			if !ok {
@@ -76,15 +72,41 @@ func (p *Player) WritePump(socket WebsocketConnection) {
 			}
 			err := socket.Ping()
 			if err != nil {
-				select {
-				case p.removeMe <- p:
-					return
-				case <-p.ctx.Done():
-					return
-				}
+				p.room.RemoveMe(p.ctx, p)
+				return
 			}
 		case <-p.ctx.Done():
 			return
 		}
 	}
+}
+
+func (p *player) Send(data []byte) error {
+	select {
+	case p.inbox <- data:
+		return nil
+	default:
+		return ErrSendBufferFull
+	}
+
+}
+func (p *player) Ping() error {
+	select {
+	case p.pingChan <- struct{}{}:
+		return nil
+	default:
+		return ErrSendBufferFull
+	}
+}
+func (p *player) SetRoom(r Room) {
+	p.room = r
+}
+func (p *player) CancelAndRelease() {
+	close(p.inbox)
+	close(p.pingChan)
+	p.cancelCtx()
+}
+
+func (p *player) Username() string {
+	return p.username
 }

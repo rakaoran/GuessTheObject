@@ -6,12 +6,12 @@ import (
 
 var chars = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
-func NewIdGen() Idgen {
-	return Idgen{
+func NewIdGen() idgen {
+	return idgen{
 		ids: make(map[string]struct{}),
 	}
 }
-func (idgen *Idgen) GetUniqueId() string {
+func (idgen *idgen) GetUniqueId() string {
 	idgen.locker.Lock()
 	defer idgen.locker.Unlock()
 	var id string
@@ -33,7 +33,7 @@ func (idgen *Idgen) GetUniqueId() string {
 	return id
 }
 
-func (idgen *Idgen) DisposeId(id string) {
+func (idgen *idgen) DisposeId(id string) {
 	idgen.locker.Lock()
 	defer idgen.locker.Unlock()
 	delete(idgen.ids, id)

@@ -1,259 +1,277 @@
 package game
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-func br(i int) {
-	println("mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm", i)
+func setupLobby(_ *testing.T) (*lobby, *MockUniqueIdGenerator, *MockPeriodicTickerChannelCreator, chan time.Time, chan time.Time) {
+	mockIdGen := &MockUniqueIdGenerator{}
+	mockTickerCreator := &MockPeriodicTickerChannelCreator{}
+
+	tickChan := make(chan time.Time)
+	pingChan := make(chan time.Time)
+
+	mockTickerCreator.On("Create", time.Second).Return(tickChan)
+	mockTickerCreator.On("Create", time.Second*30).Return(pingChan)
+
+	l := NewLobby(mockIdGen, mockTickerCreator)
+
+	return l, mockIdGen, mockTickerCreator, tickChan, pingChan
 }
 
-func TestLobby(t *testing.T) {
+func TestLobby_RequestAddAndRunRoom(t *testing.T) {
+	t.Parallel()
+	l, _, _, _, _ := setupLobby(t)
+	mockRoom := &MockRoom{}
 
-	mockTickerCreator := &MockPeriodicTickerChannelCreator{}
-	mockIdgenerator := &MockUniqueIdGenerator{}
+	// We don't need to run the actor here, just testing the method pushes to the channel
+	go func() {
+		l.RequestAddAndRunRoom(context.Background(), mockRoom)
+	}()
 
-	ticker := make(chan time.Time)
-	pingTicker := make(chan time.Time)
-	mockTickerCreator.On("Create", time.Second).Return(ticker)
-	mockTickerCreator.On("Create", time.Second*30).Return(pingTicker)
+	select {
+	case r := <-l.addAndRunRoomChan:
+		assert.Equal(t, mockRoom, r)
+	case <-time.After(time.Second * 5):
+		assert.Fail(t, "timed out waiting for room addition")
+	}
+}
 
-	lobby := NewLobby(mockIdgenerator, mockTickerCreator)
-	startedSignal := make(chan struct{})
-	go lobby.LobbyActor(startedSignal)
+func TestLobby_ForwardPlayerJoinRequestToRoom(t *testing.T) {
+	t.Parallel()
+	l, _, _, _, _ := setupLobby(t)
+	req := roomJoinRequest{roomId: "test-room"}
 
-	<-startedSignal
+	go func() {
+		l.ForwardPlayerJoinRequestToRoom(context.Background(), req)
+	}()
 
-	// when no room is there
-	pingTicker <- time.Now()
-	ticker <- time.Now()
+	select {
+	case r := <-l.roomJoinReqs:
+		assert.Equal(t, req, r)
+	case <-time.After(time.Second):
+		assert.Fail(t, "timed out waiting for join request forwarding")
+	}
+}
 
-	mockIdgenerator.On("Generate").Return("id1").Once()
-	mockIdgenerator.On("Generate").Return("id2").Once()
-	mockIdgenerator.On("Generate").Return("id3").Once()
-	mockIdgenerator.On("Generate").Return("id4").Once()
-	mockIdgenerator.On("Dispose", "id1").Return()
-	mockIdgenerator.On("Dispose", "id2").Return()
-	mockIdgenerator.On("Dispose", "id3").Return()
-	mockIdgenerator.On("Dispose", "id44").Return()
-	mockIdgenerator.On("Dispose", "RESERVED").Return()
+func TestLobbyActor(t *testing.T) {
+	t.Parallel()
 
-	room1 := NewRoom(nil, true, 0, 0, 0, 0, 0, nil)
-	room2 := NewRoom(nil, true, 0, 0, 0, 0, 0, nil)
-	room3 := NewRoom(nil, false, 15, 0, 0, 0, 0, nil)
-	room4 := NewRoom(nil, false, 7, 0, 0, 0, 0, nil)
+	t.Run("Ticker Ticks Rooms", func(t *testing.T) {
+		t.Parallel()
+		l, _, _, tickChan, _ := setupLobby(t)
 
-	t.Run("Add Room 1 (Private)", func(t *testing.T) {
+		mockRoom := &MockRoom{}
+		mockRoom.On("Tick", mock.Anything).Return()
 
-		lobby.addRoomChan <- room1
+		// Manually inject a room into the map to avoid going through the AddRoom flow for this simple test
+		l.rooms["room1"] = mockRoom
 
-		tick := time.Now()
-		ping := time.Now().Add(time.Hour)
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
 
-		ticker <- tick
-		pingTicker <- ping
+		now := time.Now()
+		tickChan <- now
+		tickChan <- now
 
-		tick1 := <-room1.ticks
-		_, ok := <-room1.pingPlayers
-
-		assert.Equal(t, tick, tick1)
-		assert.True(t, ok)
-		assert.Equal(t, "id1", room1.id)
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		assert.Empty(t, <-pubRoomsReq)
+		mockRoom.AssertCalled(t, "Tick", now)
 	})
 
-	t.Run("Add Room 2 (Private)", func(t *testing.T) {
+	t.Run("Ping Ticker Pings Players", func(t *testing.T) {
+		t.Parallel()
+		l, _, _, _, pingChan := setupLobby(t)
 
-		lobby.addRoomChan <- room2
+		mockRoom := &MockRoom{}
+		mockRoom.On("PingPlayers").Return()
 
-		tick := time.Now()
-		ping := time.Now().Add(time.Hour)
+		l.rooms["room1"] = mockRoom
 
-		ticker <- tick
-		pingTicker <- ping
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
 
-		tick1 := <-room1.ticks
-		_, ok1 := <-room1.pingPlayers
+		pingChan <- time.Now()
+		pingChan <- time.Now()
 
-		tick2 := <-room2.ticks
-		_, ok2 := <-room2.pingPlayers
-
-		assert.Equal(t, tick, tick1)
-		assert.Equal(t, tick, tick2)
-		assert.True(t, ok1)
-		assert.True(t, ok2)
-		assert.Equal(t, "id2", room2.id)
-
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		assert.Empty(t, <-pubRoomsReq)
+		mockRoom.AssertCalled(t, "PingPlayers")
 	})
 
-	t.Run("Add Room 3 (Public)", func(t *testing.T) {
+	t.Run("Add Public Room", func(t *testing.T) {
+		t.Parallel()
+		l, mockIdGen, _, _, _ := setupLobby(t)
+		mockRoom := &MockRoom{}
+		// Expectations
+		mockIdGen.On("Generate").Return("room-123")
+		mockRoom.On("SetParentLobby", l).Return()
+		mockRoom.On("SetId", "room-123").Return()
+		mockRoom.On("Description").Return(roomDescription{id: "room-123", private: false})
+		mockRoom.On("GameLoop").Return() // Gets called in a goroutine
 
-		tick := time.Now()
-		ping := time.Now().Add(time.Hour)
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
 
-		lobby.addRoomChan <- room3
+		l.addAndRunRoomChan <- mockRoom
 
-		ticker <- tick
-		pingTicker <- ping
+		time.Sleep(50 * time.Millisecond) // Wait for async operations
 
-		tick1 := <-room1.ticks
-		_, ok1 := <-room1.pingPlayers
+		mockIdGen.AssertExpectations(t)
+		mockRoom.AssertExpectations(t)
+		mockRoom.AssertCalled(t, "GameLoop")
 
-		tick2 := <-room2.ticks
-		_, ok2 := <-room2.pingPlayers
+		// Verify it's in the public list
+		reqChan := make(chan []roomDescription, 1)
+		l.pubGamesReq <- reqChan
+		descs := <-reqChan
+		assert.Len(t, descs, 1)
+		assert.Equal(t, "room-123", descs[0].id)
+	})
 
-		tick3 := <-room3.ticks
-		_, ok3 := <-room3.pingPlayers
+	t.Run("Add Private Room", func(t *testing.T) {
+		t.Parallel()
+		l, mockIdGen, _, _, _ := setupLobby(t)
+		mockRoom := &MockRoom{}
+		roomID := "room-private"
 
-		assert.Equal(t, tick, tick1)
-		assert.Equal(t, tick, tick2)
-		assert.Equal(t, tick, tick3)
-		assert.True(t, ok1)
-		assert.True(t, ok2)
-		assert.True(t, ok3)
-		assert.Equal(t, "id3", room3.id)
+		mockIdGen.On("Generate").Return(roomID)
+		mockRoom.On("SetParentLobby", l).Return()
+		mockRoom.On("SetId", roomID).Return()
+		mockRoom.On("GameLoop").Return()
+		mockRoom.On("Description").Return(roomDescription{id: roomID, private: true})
 
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		expectedRoomDescs := []RoomDescription{
-			{id: "id3", playersCount: 1, maxPlayers: 15, started: false},
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
+
+		l.addAndRunRoomChan <- mockRoom
+
+		time.Sleep(20 * time.Millisecond)
+
+		mockIdGen.AssertExpectations(t)
+		mockRoom.AssertExpectations(t)
+		mockRoom.AssertCalled(t, "GameLoop")
+
+		// Verify it is NOT in the public list
+		reqChan := make(chan []roomDescription, 1)
+		l.pubGamesReq <- reqChan
+		descs := <-reqChan
+		assert.Len(t, descs, 0)
+	})
+
+	t.Run("Remove Room", func(t *testing.T) {
+		t.Parallel()
+		l, mockIdGen, _, _, _ := setupLobby(t)
+		mockRoom := &MockRoom{}
+		roomID := "room-remove"
+
+		// Setup: Add the room first manually
+		l.rooms[roomID] = mockRoom
+		l.pubRoomsDescriptions[roomID] = roomDescription{id: roomID}
+
+		mockRoom.On("CloseAndRelease").Return()
+		mockIdGen.On("Dispose", roomID).Return()
+
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
+
+		l.removeRoomChan <- roomID
+		time.Sleep(50 * time.Millisecond)
+
+		mockRoom.AssertExpectations(t)
+		mockIdGen.AssertExpectations(t)
+
+		// Verify removed from public list
+		reqChan := make(chan []roomDescription, 1)
+		l.pubGamesReq <- reqChan
+		descs := <-reqChan
+		assert.Len(t, descs, 0)
+
+		// Verify removed completely
+		req := roomJoinRequest{
+			roomId:  "non-existent",
+			errChan: make(chan error, 1),
 		}
-		assert.ElementsMatch(t, expectedRoomDescs, <-pubRoomsReq)
+
+		l.roomJoinReqs <- req
+
+		// Should receive error as the room must be completely removed from the underlying map too
+		err := <-req.errChan
+		assert.Equal(t, ErrRoomNotFound, err)
+
 	})
 
-	t.Run("Remove Rooms 1 and 2", func(t *testing.T) {
-		tick := time.Now()
-		ping := time.Now().Add(time.Hour)
+	t.Run("Update Room Description", func(t *testing.T) {
+		t.Parallel()
+		l, _, _, _, _ := setupLobby(t)
+		roomID := "room-update"
 
-		lobby.removeRoomChan <- room1
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
 
-		_, okT1 := <-room1.ticks
-		_, okP1 := <-room1.pingPlayers
+		newDesc := roomDescription{id: roomID, playersCount: 5}
+		l.roomDescUpdate <- newDesc
+		time.Sleep(50 * time.Millisecond)
 
-		lobby.removeRoomChan <- room2
-		_, okT2 := <-room2.ticks
-		br(99)
-		_, okP2 := <-room2.pingPlayers
-		br(0)
-		// to verify that all waiting players to be removed are done
-		helperRoom := NewRoom(nil, true, 0, 0, 0, 0, 0, nil)
-		helperRoom.joinRequests = lobby.joinRoomReq
-		helperRoom.id = "RESERVED"
-		lobby.removeRoomChan <- helperRoom
-		<-helperRoom.ticks
-		br(1)
-		ticker <- tick
-		pingTicker <- ping
+		reqChan := make(chan []roomDescription, 1)
+		l.pubGamesReq <- reqChan
+		descs := <-reqChan
 
-		tick3 := <-room3.ticks
-		_, okP3 := <-room3.pingPlayers
-		br(2)
-		assert.Equal(t, tick, tick3)
-		assert.True(t, okP3)
-		assert.False(t, okP1)
-		assert.False(t, okT1)
-		assert.False(t, okP2)
-		assert.False(t, okT2)
+		assert.Len(t, descs, 1)
+		assert.Equal(t, 5, descs[0].playersCount)
+	})
 
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		expectedRoomDescs := []RoomDescription{
-			{id: "id3", playersCount: 1, maxPlayers: 15, started: false},
+	t.Run("Join Room Success", func(t *testing.T) {
+		t.Parallel()
+		l, _, _, _, _ := setupLobby(t)
+		mockRoom := &MockRoom{}
+		roomID := "room-join"
+
+		l.rooms[roomID] = mockRoom
+
+		// Create request
+		req := roomJoinRequest{
+			roomId:  roomID,
+			errChan: make(chan error, 1),
 		}
-		br(3)
-		assert.ElementsMatch(t, expectedRoomDescs, <-pubRoomsReq)
+
+		mockRoom.On("RequestJoin", req).Return()
+
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
+
+		l.roomJoinReqs <- req
+		time.Sleep(50 * time.Millisecond)
+
+		mockRoom.AssertExpectations(t)
+		assert.Len(t, req.errChan, 0) // Should be no error sent here, room handles it
 	})
 
-	t.Run("Add Room 4 (Public)", func(t *testing.T) {
+	t.Run("Join Room Not Found", func(t *testing.T) {
+		t.Parallel()
+		l, _, _, _, _ := setupLobby(t)
 
-		tick := time.Now()
-		ping := time.Now().Add(time.Hour)
-
-		lobby.addRoomChan <- room4
-
-		ticker <- tick
-		pingTicker <- ping
-
-		tick3 := <-room3.ticks
-		_, ok3 := <-room3.pingPlayers
-
-		tick4 := <-room4.ticks
-		_, ok4 := <-room4.pingPlayers
-
-		assert.Equal(t, tick, tick3)
-		assert.True(t, ok3)
-		assert.Equal(t, tick, tick4)
-		assert.True(t, ok4)
-		assert.Equal(t, "id4", room4.id)
-
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		expectedRoomDescs := []RoomDescription{
-			{id: "id3", playersCount: 1, maxPlayers: 15, started: false},
-			{id: "id4", playersCount: 1, maxPlayers: 7, started: false},
+		req := roomJoinRequest{
+			roomId:  "non-existent",
+			errChan: make(chan error, 1),
 		}
-		assert.ElementsMatch(t, expectedRoomDescs, <-pubRoomsReq)
-		//riemtrimtriesmtesm
+
+		started := make(chan struct{})
+		go l.LobbyActor(started)
+		<-started
+
+		l.roomJoinReqs <- req
+
+		// Should receive error
+		err := <-req.errChan
+		assert.Equal(t, ErrRoomNotFound, err)
 	})
-
-	t.Run("Update Description For Room 3", func(t *testing.T) {
-		room3.updateDescriptionChan <- RoomDescription{id: room3.id, playersCount: 55, started: true, maxPlayers: 21}
-
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		expectedRoomDescs := []RoomDescription{
-			{id: "id3", playersCount: 55, maxPlayers: 21, started: true},
-			{id: "id4", playersCount: 1, maxPlayers: 7, started: false},
-		}
-		assert.ElementsMatch(t, expectedRoomDescs, <-pubRoomsReq)
-	})
-
-	t.Run("Room Join Request Forwarding Correct ID", func(t *testing.T) {
-		roomJoinreq := RoomJoinRequest{roomId: "id4", player: &Player{}, errChan: nil} // expect no error bru
-
-		lobby.joinRoomReq <- roomJoinreq
-
-		assert.Equal(t, roomJoinreq, <-room4.joinRequests)
-	})
-
-	t.Run("Room Join Request Forwarding Wrong ID", func(t *testing.T) {
-		errChan := make(chan error, 1)
-		roomJoinreq := RoomJoinRequest{roomId: "WRONG ID HAHA", player: &Player{}, errChan: errChan}
-		lobby.joinRoomReq <- roomJoinreq
-		assert.Equal(t, ErrRoomNotFound, <-errChan)
-	})
-
-	t.Run("Remove Room 3", func(t *testing.T) {
-		lobby.removeRoomChan <- room3
-		_, ok := <-room3.pingPlayers
-
-		assert.False(t, ok)
-
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		expectedRoomDescs := []RoomDescription{
-			{id: "id4", playersCount: 1, maxPlayers: 7, started: false},
-		}
-		assert.ElementsMatch(t, expectedRoomDescs, <-pubRoomsReq)
-	})
-
-	t.Run("Remove Room 4", func(t *testing.T) {
-		lobby.removeRoomChan <- room4
-		_, ok := <-room4.ticks
-		assert.False(t, ok)
-		pubRoomsReq := make(chan []RoomDescription, 1)
-		lobby.pubGamesReq <- pubRoomsReq
-		assert.Empty(t, <-pubRoomsReq)
-	})
-
-	mockIdgenerator.AssertExpectations(t)
-	mockTickerCreator.AssertExpectations(t)
 }

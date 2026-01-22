@@ -72,3 +72,85 @@ func (m *MockUserGetter) GetUserById(ctx context.Context, id string) (domain.Use
 	args := m.Called(ctx, id)
 	return args.Get(0).(domain.User), args.Error(1)
 }
+
+type MockPlayer struct {
+	mock.Mock
+}
+
+func (m *MockPlayer) Send(data []byte) error {
+	args := m.Called(data)
+	return args.Error(0)
+}
+
+func (m *MockPlayer) Ping() error {
+	args := m.Called()
+	return args.Error(0)
+}
+
+func (m *MockPlayer) SetRoom(r Room) {
+	m.Called(r)
+}
+
+func (m *MockPlayer) Cancel() {
+	m.Called()
+}
+
+type MockRoom struct {
+	mock.Mock
+}
+
+func (m *MockRoom) Description() roomDescription {
+	args := m.Called()
+	return args.Get(0).(roomDescription)
+}
+
+func (m *MockRoom) SetParentLobby(l Lobby) {
+	m.Called(l)
+}
+
+func (m *MockRoom) CloseAndRelease() {
+	m.Called()
+}
+
+func (m *MockRoom) PingPlayers() {
+	m.Called()
+}
+
+func (m *MockRoom) Send(ctx context.Context, e ClientPacketEnvelope) {
+	m.Called(ctx, e)
+}
+
+func (m *MockRoom) RemoveMe(ctx context.Context, p Player) {
+	m.Called(ctx, p)
+}
+
+func (m *MockRoom) RequestJoin(jreq roomJoinRequest) {
+	m.Called(jreq)
+}
+
+func (m *MockRoom) Tick(now time.Time) {
+	m.Called(now)
+}
+
+func (m *MockRoom) GameLoop() {
+	m.Called()
+}
+
+func (m *MockRoom) SetId(id string) {
+	m.Called(id)
+}
+
+type MockLobby struct {
+	mock.Mock
+}
+
+func (m *MockLobby) RequestAddAndRunRoom(ctx context.Context, r Room, host Player) {
+	m.Called(ctx, r, host)
+}
+
+func (m *MockLobby) ForwardPlayerJoinRequestToRoom(
+	ctx context.Context,
+	jreq roomJoinRequest,
+) {
+	m.Called(ctx, jreq)
+}

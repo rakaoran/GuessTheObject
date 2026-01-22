@@ -2,12 +2,14 @@ package game
 
 import (
 	"api/domain/protobuf"
+	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/google/go-cmp/cmp"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/mock"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/testing/protocmp"
 )
@@ -25,35 +27,37 @@ func TestReadPump(t *testing.T) {
 	t.Run("Read Error", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p := NewPlayer("id", "username")
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
+		p.SetRoom(mockRoom)
 		mockSocket.On("Read").Return([]byte{}, assert.AnError)
 		mockSocket.On("Close").Return()
-		removeMe := make(chan *Player, 1)
-		player.removeMe = removeMe
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		// on read error, the goroutine must release
 		wg.Wait()
 
-		assert.Equal(t, player, <-removeMe)
 		mockSocket.AssertExpectations(t)
 	})
 
 	t.Run("Read Error With Context Cancelation", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p := NewPlayer("id", "username")
+		p.SetRoom(mockRoom)
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
 		mockSocket.On("Read").Return([]byte{}, assert.AnError)
 		mockSocket.On("Close").Return()
-		player.removeMe = nil
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		// on cancel, the goroutine must release
-		player.cancelCtx()
+		p.cancelCtx()
 		wg.Wait()
 		mockSocket.AssertExpectations(t)
 	})
@@ -61,8 +65,7 @@ func TestReadPump(t *testing.T) {
 	t.Run("Blocked Room Write With Context Cancelation", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
-		player.roomChan = make(chan ClientPacketEnvelope)
+		p := NewPlayer("id", "username")
 		clientPacket := &protobuf.ClientPacket{
 			Payload: &protobuf.ClientPacket_DrawingData{
 				DrawingData: &protobuf.DrawingData{
@@ -70,14 +73,29 @@ func TestReadPump(t *testing.T) {
 				},
 			},
 		}
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
 		marshaledClientPacket, _ := proto.Marshal(clientPacket)
+		mockRoom.On("Send", p.ctx, mock.Anything).Run(func(args mock.Arguments) {
+			envlp, ok := args.Get(1).(ClientPacketEnvelope)
+			assert.True(t, ok)
+			AssertProtoEq(t, envlp.clientPacket, clientPacket)
+			assert.Equal(t, p.username, envlp.from)
+			select {
+			case <-time.After(time.Second):
+			case <-args.Get(0).(context.Context).Done():
+				return
+			}
+		}).Return()
+
 		mockSocket.On("Read").Return(marshaledClientPacket, nil)
 		mockSocket.On("Close").Return()
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
-		player.cancelCtx()
+		p.CancelAndRelease()
 		// on cancel, the goroutine must release
 		wg.Wait()
 		mockSocket.AssertExpectations(t)
@@ -86,31 +104,29 @@ func TestReadPump(t *testing.T) {
 	t.Run("Read garbage data", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
+		p := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
 		marshaledClientPacket := []byte{1, 5}
 		mockSocket.On("Read").Return(marshaledClientPacket, nil).Once()
 		mockSocket.On("Read").Return(marshaledClientPacket, assert.AnError).Once()
 		mockSocket.On("Close").Return()
-		roomchan := make(chan ClientPacketEnvelope, 1)
-		player.roomChan = roomchan
-		removeMe := make(chan *Player, 1)
-		player.removeMe = removeMe
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		wg.Wait()
-
-		assert.Empty(t, roomchan)
-		assert.Equal(t, player, <-removeMe)
 		mockSocket.AssertExpectations(t)
 	})
 
 	t.Run("Read good data", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
-
+		p := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
 		clientPacket := &protobuf.ClientPacket{
 			Payload: &protobuf.ClientPacket_DrawingData{
 				DrawingData: &protobuf.DrawingData{
@@ -122,19 +138,19 @@ func TestReadPump(t *testing.T) {
 		mockSocket.On("Read").Return(marshaledClientPacket, nil).Once()
 		mockSocket.On("Read").Return(marshaledClientPacket, assert.AnError).Once()
 		mockSocket.On("Close").Return()
-		roomchan := make(chan ClientPacketEnvelope, 1)
-		player.roomChan = roomchan
-		player.removeMe = make(chan *Player, 1)
+
+		mockRoom.On("Send", p.ctx, mock.AnythingOfType("ClientPacketEnvelope")).Run(func(args mock.Arguments) {
+			envlp, ok := args.Get(1).(ClientPacketEnvelope)
+			assert.True(t, ok)
+			AssertProtoEq(t, envlp.clientPacket, clientPacket)
+			assert.Equal(t, p.username, envlp.from)
+		})
+
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		wg.Wait()
-
-		require.Len(t, roomchan, 1)
-		envelope := <-roomchan
-		require.Equal(t, player, envelope.from)
-		AssertProtoEq(t, clientPacket, envelope.clientPacket)
 
 		mockSocket.AssertExpectations(t)
 	})
@@ -142,7 +158,7 @@ func TestReadPump(t *testing.T) {
 	t.Run("Spam Messages Rate Limiting", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
+		p := NewPlayer("id", "username")
 
 		clientPacket := &protobuf.ClientPacket{
 			Payload: &protobuf.ClientPacket_PlayerMessage_{
@@ -155,19 +171,16 @@ func TestReadPump(t *testing.T) {
 		mockSocket.On("Read").Return(marshaledClientPacket, nil).Times(50)
 		mockSocket.On("Read").Return(marshaledClientPacket, assert.AnError).Once()
 		mockSocket.On("Close").Return()
-		roomchan := make(chan ClientPacketEnvelope, 50)
-		player.roomChan = roomchan
-		player.removeMe = make(chan *Player, 1)
+
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+		mockRoom.On("Send", p.ctx, mock.Anything).Times(5).Return()
+		mockRoom.On("RemoveMe", p.ctx, p)
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		wg.Wait()
-
-		require.Len(t, roomchan, 5)
-		envelope := <-roomchan
-		require.Equal(t, player, envelope.from)
-		AssertProtoEq(t, clientPacket, envelope.clientPacket)
 
 		mockSocket.AssertExpectations(t)
 	})
@@ -175,7 +188,7 @@ func TestReadPump(t *testing.T) {
 	t.Run("Stuff like drawing data doesn't get rate limited", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
-		player := NewPlayer("id", "username")
+		p := NewPlayer("id", "username")
 
 		clientPacket := &protobuf.ClientPacket{
 			Payload: &protobuf.ClientPacket_DrawingData{
@@ -184,23 +197,20 @@ func TestReadPump(t *testing.T) {
 				},
 			},
 		}
+		mockRoom := &MockRoom{}
+		mockRoom.On("Send", p.ctx, mock.Anything).Times(50).Return()
+		mockRoom.On("RemoveMe", p.ctx, p)
+		p.SetRoom(mockRoom)
 		marshaledClientPacket, _ := proto.Marshal(clientPacket)
 		mockSocket.On("Read").Return(marshaledClientPacket, nil).Times(50)
 		mockSocket.On("Read").Return(marshaledClientPacket, assert.AnError).Once()
 		mockSocket.On("Close").Return()
-		roomchan := make(chan ClientPacketEnvelope, 60)
-		player.roomChan = roomchan
-		player.removeMe = make(chan *Player, 1)
+
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.ReadPump(mockSocket)
+			p.ReadPump(mockSocket)
 		})
 		wg.Wait()
-
-		require.Len(t, roomchan, 50)
-		envelope := <-roomchan
-		require.Equal(t, player, envelope.from)
-		AssertProtoEq(t, clientPacket, envelope.clientPacket)
 
 		mockSocket.AssertExpectations(t)
 	})
@@ -210,44 +220,16 @@ func TestReadPump(t *testing.T) {
 func TestWritePump(t *testing.T) {
 	t.Parallel()
 
-	t.Run("Inbox Closing Must Release The Goroutine", func(t *testing.T) {
+	t.Run("Canceling and Releasing Must Release The Goroutine", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
 		mockSocket.On("Close").Return().Once()
-		player := NewPlayer("id", "username")
+		p := NewPlayer("id", "username")
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.WritePump(mockSocket)
+			p.WritePump(mockSocket)
 		})
-		close(player.inbox)
-		wg.Wait()
-		mockSocket.AssertExpectations(t)
-	})
-
-	t.Run("Ping Channel Closing Must Release The Goroutine", func(t *testing.T) {
-		t.Parallel()
-		mockSocket := &MockWebsocketConnection{}
-		mockSocket.On("Close").Return().Once()
-		player := NewPlayer("id", "username")
-		wg := sync.WaitGroup{}
-		wg.Go(func() {
-			player.WritePump(mockSocket)
-		})
-		close(player.pingChan)
-		wg.Wait()
-		mockSocket.AssertExpectations(t)
-	})
-
-	t.Run("Context Cancelation Must Release The Goroutine", func(t *testing.T) {
-		t.Parallel()
-		mockSocket := &MockWebsocketConnection{}
-		mockSocket.On("Close").Return().Once()
-		player := NewPlayer("id", "username")
-		wg := sync.WaitGroup{}
-		wg.Go(func() {
-			player.WritePump(mockSocket)
-		})
-		player.cancelCtx()
+		p.CancelAndRelease()
 		wg.Wait()
 		mockSocket.AssertExpectations(t)
 	})
@@ -255,57 +237,103 @@ func TestWritePump(t *testing.T) {
 	t.Run("Write Error Must Notify Room Then Release The Goroutine", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
+		mockRoom := &MockRoom{}
+
 		data := []byte{1, 2, 3}
-		mockSocket.On("Close").Return().Once()
+
+		// Expect Write to fail
 		mockSocket.On("Write", data).Return(assert.AnError).Once()
-		player := NewPlayer("id", "username")
-		removeMe := make(chan *Player, 1)
-		player.removeMe = removeMe
+		mockSocket.On("Close").Return().Once()
+
+		p := NewPlayer("id", "username")
+		p.SetRoom(mockRoom)
+
+		// Expect Room.RemoveMe to be called on write failure
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
+
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.WritePump(mockSocket)
+			p.WritePump(mockSocket)
 		})
-		player.inbox <- data
+
+		p.Send(data)
 		wg.Wait()
-		assert.Equal(t, player, <-removeMe)
+
 		mockSocket.AssertExpectations(t)
+		mockRoom.AssertExpectations(t)
 	})
 
 	t.Run("Correct Data Writing", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
 		data := []byte{1, 2, 3}
+
+		// First write succeeds, second fails to trigger exit
 		mockSocket.On("Write", data).Return(nil).Once()
 		mockSocket.On("Write", data).Return(assert.AnError).Once()
 		mockSocket.On("Close").Return().Once()
-		player := NewPlayer("id", "username")
-		player.removeMe = make(chan *Player, 1)
+
+		p := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+
+		// Room removal on the second (failed) write
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
+
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.WritePump(mockSocket)
+			p.WritePump(mockSocket)
 		})
-		player.inbox <- data
-		player.inbox <- data
+		p.Send(data)
+		p.Send(data)
 		wg.Wait()
+
 		mockSocket.AssertExpectations(t)
 	})
 
-	t.Run("Correct Ping Handling", func(t *testing.T) {
+	t.Run("Correct Ping Writing", func(t *testing.T) {
 		t.Parallel()
 		mockSocket := &MockWebsocketConnection{}
+
 		mockSocket.On("Ping").Return(nil).Once()
-		mockSocket.On("Ping").Return(assert.AnError).Once()
 		mockSocket.On("Close").Return().Once()
-		player := NewPlayer("id", "username")
-		player.removeMe = make(chan *Player, 1)
+
+		p := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		p.SetRoom(mockRoom)
+
 		wg := sync.WaitGroup{}
 		wg.Go(func() {
-			player.WritePump(mockSocket)
+			p.WritePump(mockSocket)
 		})
-		player.pingChan <- struct{}{}
-		player.pingChan <- struct{}{}
+
+		p.Ping()
+		close(p.pingChan)
 		wg.Wait()
+
 		mockSocket.AssertExpectations(t)
 	})
 
+	t.Run("Ping Writing Must Release", func(t *testing.T) {
+		t.Parallel()
+		mockSocket := &MockWebsocketConnection{}
+
+		mockSocket.On("Ping").Return(assert.AnError).Once()
+		mockSocket.On("Close").Return().Once()
+
+		p := NewPlayer("id", "username")
+		mockRoom := &MockRoom{}
+		mockRoom.On("RemoveMe", p.ctx, p).Return()
+		p.SetRoom(mockRoom)
+
+		wg := sync.WaitGroup{}
+		wg.Go(func() {
+			p.WritePump(mockSocket)
+		})
+
+		p.Ping()
+		wg.Wait()
+
+		mockSocket.AssertExpectations(t)
+	})
 }
