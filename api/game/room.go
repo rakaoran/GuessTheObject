@@ -52,6 +52,8 @@ func NewRoom(
 		randomWordsGenerator:  randomWordsGenerator,
 	}
 
+	host.SetRoom(r)
+
 	return r
 }
 
@@ -367,8 +369,6 @@ func (r *room) handleTick(now time.Time) {
 	}
 
 	switch r.phase {
-	case PHASE_PENDING:
-		r.transitionToChoosingWord()
 	case PHASE_CHOOSING_WORD:
 		r.transitionToDrawing()
 	case PHASE_DRAWING:

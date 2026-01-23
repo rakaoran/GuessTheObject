@@ -1,25 +1,23 @@
 package game
 
 import (
+	"api/domain/protobuf"
 	"context"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 )
 
-// The MockPlayer in mocks_test.go is outdated (missing Username/CancelAndRelease),
-// so we need a local one that actually satisfies the Player interface.
-
-func setupRoom(t *testing.T) (*room, *MockPlayer, *MockRandomWordsGenerator) {
+func setupRoom() (*room, *MockPlayer, *MockRandomWordsGenerator) {
 	host := &MockPlayer{}
-	// NewRoom calls host.Username(), so we must mock it immediately
 	host.On("Username").Return("host_user")
+	host.On("SetRoom", mock.Anything).Return()
 
 	gen := &MockRandomWordsGenerator{}
 
-	// Calling NewRoom exactly as is, no safety patches 💀
 	r := NewRoom(
 		host,
 		false,
@@ -35,20 +33,20 @@ func setupRoom(t *testing.T) (*room, *MockPlayer, *MockRandomWordsGenerator) {
 }
 
 func TestRoom_SetId(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	r.SetId("new-id")
 	assert.Equal(t, "new-id", r.id)
 }
 
 func TestRoom_SetParentLobby(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	lobby := &MockLobby{}
 	r.SetParentLobby(lobby)
 	assert.Equal(t, lobby, r.parentLobby)
 }
 
 func TestRoom_Description(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	r.SetId("desc-test")
 
 	desc := r.Description()
@@ -60,7 +58,7 @@ func TestRoom_Description(t *testing.T) {
 }
 
 func TestRoom_PingPlayers(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 
 	// This should be non-blocking
 	r.PingPlayers()
@@ -75,7 +73,7 @@ func TestRoom_PingPlayers(t *testing.T) {
 }
 
 func TestRoom_Tick(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	now := time.Now()
 
 	r.Tick(now)
@@ -89,7 +87,7 @@ func TestRoom_Tick(t *testing.T) {
 }
 
 func TestRoom_Send(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	ctx := context.Background()
 	envelope := ClientPacketEnvelope{from: "user1"}
 
@@ -104,7 +102,7 @@ func TestRoom_Send(t *testing.T) {
 }
 
 func TestRoom_RequestJoin(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	req := roomJoinRequest{roomId: "room1"}
 
 	done := make(chan struct{})
@@ -124,7 +122,7 @@ func TestRoom_RequestJoin(t *testing.T) {
 }
 
 func TestRoom_RemoveMe(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 	p := &MockPlayer{}
 	ctx := context.Background()
 
@@ -142,7 +140,7 @@ func TestRoom_RemoveMe(t *testing.T) {
 }
 
 func TestRoom_CloseAndRelease(t *testing.T) {
-	r, _, _ := setupRoom(t)
+	r, _, _ := setupRoom()
 
 	assert.NotPanics(t, func() {
 		r.CloseAndRelease()
@@ -153,11 +151,95 @@ func TestRoom_CloseAndRelease(t *testing.T) {
 	assert.Falsef(t, ok, "Channel is still non closed")
 }
 
-func TestRoom_GameLoop(t *testing.T) {
-	r, _, _ := setupRoom(t)
+func TestRoom_GameLoop_Close_And_Release(t *testing.T) {
+	r, _, _ := setupRoom()
 	wg := sync.WaitGroup{}
 
 	wg.Go(func() { r.GameLoop() })
 	r.CloseAndRelease()
 	wg.Wait()
+}
+
+func TestRoom_GameLoop_Reads_Ticks_And_Updates_Phase(t *testing.T) {
+	r, p, wgen := setupRoom()
+	wgen.On("Generate", r.wordsCount).Return([]string{"word1", "word2", "word3"})
+	p.On("Send", mock.Anything).Return(nil)
+	assert.Equal(t, PHASE_PENDING, r.phase)
+
+	go r.GameLoop()
+
+	r.phase = PHASE_TURN_SUMMARY
+
+	futureTime := time.Now().Add(20 * time.Minute)
+	r.ticks <- futureTime
+
+	assert.Eventually(t, func() bool {
+		return r.phase == PHASE_CHOOSING_WORD
+	}, time.Second, 50*time.Millisecond, "GameLoop should read tick and update phase")
+	wgen.AssertExpectations(t)
+	p.AssertExpectations(t)
+}
+
+func TestRoom_GameLoop_Reads_Ping_And_Queues_Task(t *testing.T) {
+	r, p, _ := setupRoom()
+	p.On("Ping").Return(nil)
+	go r.GameLoop()
+	r.PingPlayers()
+	time.Sleep(time.Millisecond * 50)
+	p.AssertExpectations(t)
+}
+
+func TestRoom_GameLoop_Inbox_Sends_Data(t *testing.T) {
+	r, host, _ := setupRoom()
+	lobby := &MockLobby{}
+	lobby.On("RequestUpdateDescription", mock.Anything).Return()
+	r.SetParentLobby(lobby)
+
+	host.On("Send", mock.Anything).Return(nil)
+
+	go r.GameLoop()
+
+	envelope := ClientPacketEnvelope{
+		from: host.Username(),
+		clientPacket: &protobuf.ClientPacket{
+			Payload: &protobuf.ClientPacket_StartGame_{
+				StartGame: &protobuf.ClientPacket_StartGame{},
+			},
+		},
+	}
+	r.inbox <- envelope
+
+	time.Sleep(50 * time.Millisecond)
+	host.AssertExpectations(t)
+}
+
+func TestRoom_GameLoop_Player_Removal(t *testing.T) {
+	// Setup
+	r, host, _ := setupRoom()
+
+	lobby := &MockLobby{}
+	lobby.On("RequestUpdateDescription", mock.Anything).Return()
+	r.SetParentLobby(lobby)
+
+	victim := &MockPlayer{}
+	victim.On("Username").Return("victim_user")
+	victim.On("SetRoom", r).Return()
+
+	r.addPlayer(victim)
+
+	host.On("Send", mock.Anything).Return(nil)
+	victim.On("Send", mock.Anything).Return(nil)
+	// Victim should be cancelled
+	victim.On("CancelAndRelease").Return()
+
+	// 3. Start the loop
+	go r.GameLoop()
+
+	// 4. Action: Trigger removal
+	r.playerRemovalRequests <- victim
+
+	// 5. Assert
+	time.Sleep(50 * time.Millisecond)
+	host.AssertExpectations(t)
+	victim.AssertExpectations(t)
 }
