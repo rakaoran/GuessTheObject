@@ -39,7 +39,7 @@ func NewRoom(
 		wordsCount:            wordsCount,
 		phase:                 PHASE_PENDING,
 		guessersCount:         0,
-		nextTick:              time.Now().Add(time.Minute * 15),
+		nextTick:              time.Now().Add(time.Hour * 24),
 		choosingWordDuration:  choosingWordDuration,
 		drawingDuration:       drawingDuration,
 		wordChoices:           nil,
@@ -322,13 +322,13 @@ func (r *room) handleStartGameEnvelope(from string) {
 	if r.phase != PHASE_PENDING {
 		return
 	}
-	r.updateDescription()
 	if r.host != from {
 		return
 	}
 
 	pkt := protobuf.MakePacketGameStarted()
 	r.broadcastToAll(pkt)
+	r.transitionToChoosingWord()
 	r.updateDescription()
 }
 
@@ -352,16 +352,16 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 	for i, ps := range r.playerStates {
 		if ps.username == from {
 			senderIndex = i
-			return
+			break
 		}
 	}
 	if clientMessage.Message == r.currentWord && !r.playerStates[senderIndex].hasGuessed && r.phase == PHASE_DRAWING {
 		serverPacket := protobuf.MakePacketPlayerGuessedTheWord(from)
-		r.playerStates[senderIndex].scoreIncrement = (len(r.playerStates) - r.guessersCount) * 100
+		r.playerStates[senderIndex].scoreIncrement = (len(r.playerStates) - 1 - r.guessersCount) * 100
 		r.playerStates[senderIndex].hasGuessed = true
 		r.guessersCount++
 		r.broadcastToAll(serverPacket)
-		if len(r.playerStates) == r.guessersCount {
+		if len(r.playerStates)-1 == r.guessersCount {
 			r.transitionToTurnSummary()
 		}
 		return
