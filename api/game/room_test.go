@@ -103,8 +103,10 @@ func TestRoom_Send(t *testing.T) {
 
 func TestRoom_RequestJoin(t *testing.T) {
 	r, _, _ := setupRoom()
-	req := roomJoinRequest{roomId: "room1"}
+	p := &MockPlayer{}
 
+	req := roomJoinRequest{roomId: "room1", player: p, errChan: make(chan error, 1)}
+	go r.GameLoop()
 	done := make(chan struct{})
 	go func() {
 		r.RequestJoin(req)
@@ -112,13 +114,11 @@ func TestRoom_RequestJoin(t *testing.T) {
 	}()
 
 	select {
-	case <-done:
-	case <-time.After(100 * time.Millisecond):
-		assert.Fail(t, "RequestJoin blocked too long (channel probably nil or full)")
+	case <-req.errChan:
+	case <-time.After(2 * time.Second):
+		assert.Fail(t, "err chan blocked too long (channel probably nil or full)")
 		return
 	}
-
-	assert.Equal(t, req, <-r.joinReqs)
 }
 
 func TestRoom_RemoveMe(t *testing.T) {

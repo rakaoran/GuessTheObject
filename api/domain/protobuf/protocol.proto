@@ -37,6 +37,9 @@ message ServerPacket {
     repeated bytes drawing_history = 2;
     string current_drawer = 3;
     int32 current_round = 4;
+    string room_id = 5;
+    int64 next_tick = 6;
+    int32 current_phase = 7;
   }
 
   message PlayerJoined {

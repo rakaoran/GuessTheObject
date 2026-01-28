@@ -26,11 +26,12 @@ func NewRoom(
 	drawingDuration time.Duration,
 	randomWordsGenerator RandomWordsGenerator,
 ) *room {
+	hUsername := host.Username()
 	r := &room{
 		private: private,
-		host:    host.Username(),
+		host:    hUsername,
 		playerStates: []*playerGameState{
-			{player: host, username: host.Username()},
+			{player: host, username: hUsername},
 		},
 		drawerIndex:           0,
 		maxPlayers:            maxPlayers,
@@ -38,7 +39,6 @@ func NewRoom(
 		wordsCount:            wordsCount,
 		phase:                 PHASE_PENDING,
 		guessersCount:         0,
-		round:                 1,
 		nextTick:              time.Now().Add(time.Minute * 15),
 		choosingWordDuration:  choosingWordDuration,
 		drawingDuration:       drawingDuration,
@@ -56,6 +56,10 @@ func NewRoom(
 
 	return r
 }
+
+/*
+	Room interface implementation
+*/
 
 func (r *room) PingPlayers() {
 	select {
@@ -128,7 +132,7 @@ func (r *room) GameLoop() {
 			if !ok {
 				return
 			}
-			r.handlePingPlayers()
+			r.bufferPingTasks()
 
 		case envelope := <-r.inbox:
 			r.handleEnvelope(envelope)
@@ -144,6 +148,13 @@ func (r *room) GameLoop() {
 				return
 			}
 			r.handleRemovePlayer(p)
+
+		case jreq, ok := <-r.joinReqs:
+			if !ok {
+				return
+			}
+
+			r.handleJoinRequest(jreq)
 		}
 
 		r.executeAndClearTasks()
@@ -164,9 +175,11 @@ func (r *room) executeAndClearTasks() {
 		to := r.dataSendTasks[i].to
 		data := r.dataSendTasks[i].data
 		err := to.Send(data)
+
 		if err != nil {
 			r.handleRemovePlayer(to)
 		}
+
 		i++
 	}
 
@@ -176,9 +189,19 @@ func (r *room) executeAndClearTasks() {
 	r.pingSendTasks = r.pingSendTasks[:0]
 }
 
-func (r *room) handlePingPlayers() {
+func (r *room) bufferPingTasks() {
 	for _, ps := range r.playerStates {
 		r.pingSendTasks = append(r.pingSendTasks, pingSendTask{to: ps.player})
+	}
+}
+
+func (r *room) handleJoinRequest(jreq roomJoinRequest) {
+	if r.maxPlayers > len(r.playerStates) {
+		r.addPlayer(jreq.player)
+		close(jreq.errChan)
+	} else {
+		jreq.errChan <- ErrRoomFull
+		close(jreq.errChan)
 	}
 }
 
@@ -186,36 +209,25 @@ func (r *room) addPlayer(p Player) error {
 	if len(r.playerStates) >= r.maxPlayers {
 		return ErrRoomFull
 	}
-	r.playerStates = append(r.playerStates, &playerGameState{username: p.Username(), player: p})
-	p.SetRoom(r)
-	x := &protobuf.ServerPacket_InitialRoomSnapshot{
-		PlayersStates: make([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState, len(r.playerStates)),
-	}
-	initialRoomSnapshot := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_InitialRoomSnapshot_{
-			InitialRoomSnapshot: x,
-		},
-	}
+
+	pStates := make([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState, 0, len(r.playerStates))
 	for _, ps := range r.playerStates {
-		x.PlayersStates = append(x.PlayersStates, &protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{
+		pStates = append(pStates, &protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{
 			Username:  ps.username,
 			Score:     int64(ps.score),
 			IsGuesser: ps.hasGuessed,
 		})
 	}
-	x.CurrentDrawer = r.currentDrawer
-	x.CurrentRound = int32(r.round)
-	x.DrawingHistory = r.drawingHistory
+	pUsername := p.Username()
+	playerJoined := protobuf.MakePacketPlayerJoined(pUsername)
+	r.broadcastToAll(playerJoined)
+	initialRoomSnapshot := protobuf.MakePacketInitialRoomSnapshot(pStates, r.drawingHistory, r.currentDrawer, int32(r.round), r.id, int32(r.phase), r.nextTick.UnixMilli())
+
+	r.playerStates = append(r.playerStates, &playerGameState{username: pUsername, player: p})
+	p.SetRoom(r)
 
 	r.broadcastTo(initialRoomSnapshot, p)
-	playerJoined := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerJoined_{
-			PlayerJoined: &protobuf.ServerPacket_PlayerJoined{
-				Username: p.Username(),
-			},
-		},
-	}
-	r.broadcastToAll(playerJoined)
+
 	r.updateDescription()
 	return nil
 }
@@ -241,6 +253,7 @@ func (r *room) handleRemovePlayer(toRemove Player) {
 						Username: ps.username,
 					},
 				},
+				ServerTimestamp: time.Now().UnixMilli(),
 			}
 			r.broadcastToAll(playerLeft)
 			r.updateDescription()
@@ -248,6 +261,38 @@ func (r *room) handleRemovePlayer(toRemove Player) {
 		}
 	}
 }
+func (r *room) handleTick(now time.Time) {
+	if now.Before(r.nextTick) {
+		return
+	}
+
+	switch r.phase {
+	case PHASE_CHOOSING_WORD:
+		r.transitionToDrawing()
+	case PHASE_DRAWING:
+		r.transitionToTurnSummary()
+	case PHASE_TURN_SUMMARY:
+		r.transitionToChoosingWord()
+	case PHASE_GAMEEND:
+	}
+}
+
+func (r *room) updateDescription() {
+	if r.private {
+		return
+	}
+	desc := roomDescription{
+		id:           r.id,
+		playersCount: len(r.playerStates),
+		maxPlayers:   r.maxPlayers,
+		started:      r.phase != PHASE_PENDING,
+	}
+	r.parentLobby.RequestUpdateDescription(desc)
+}
+
+/*
+	Envelope handlers
+*/
 
 func (r *room) handleEnvelope(env ClientPacketEnvelope) {
 	switch payload := env.clientPacket.Payload.(type) {
@@ -264,11 +309,7 @@ func (r *room) handleEnvelope(env ClientPacketEnvelope) {
 
 func (r *room) handleDrawingDataEnvelope(drawingData *protobuf.DrawingData, from string) {
 	if r.currentDrawer == from {
-		pkt := &protobuf.ServerPacket{
-			Payload: &protobuf.ServerPacket_DrawingData{
-				DrawingData: drawingData,
-			},
-		}
+		pkt := protobuf.MakePacketDrawingData(drawingData.Data)
 
 		r.broadcastToAll(pkt)
 		r.drawingHistory = append(r.drawingHistory, drawingData.Data)
@@ -286,11 +327,7 @@ func (r *room) handleStartGameEnvelope(from string) {
 		return
 	}
 
-	pkt := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_GameStarted_{
-			GameStarted: &protobuf.ServerPacket_GameStarted{},
-		},
-	}
+	pkt := protobuf.MakePacketGameStarted()
 	r.broadcastToAll(pkt)
 	r.updateDescription()
 }
@@ -307,6 +344,7 @@ func (r *room) handleWordChoiceEnvelope(wordChoice *protobuf.ClientPacket_WordCh
 		return
 	}
 	r.currentWord = r.wordChoices[choiceIndex]
+	r.transitionToDrawing()
 }
 
 func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_PlayerMessage, from string) {
@@ -318,13 +356,7 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 		}
 	}
 	if clientMessage.Message == r.currentWord && !r.playerStates[senderIndex].hasGuessed && r.phase == PHASE_DRAWING {
-		serverPacket := &protobuf.ServerPacket{
-			Payload: &protobuf.ServerPacket_PlayerGuessedTheWord_{
-				PlayerGuessedTheWord: &protobuf.ServerPacket_PlayerGuessedTheWord{
-					Username: from,
-				},
-			},
-		}
+		serverPacket := protobuf.MakePacketPlayerGuessedTheWord(from)
 		r.playerStates[senderIndex].scoreIncrement = (len(r.playerStates) - r.guessersCount) * 100
 		r.playerStates[senderIndex].hasGuessed = true
 		r.guessersCount++
@@ -334,15 +366,7 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 		}
 		return
 	}
-	serverPacket := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerMessage_{
-			PlayerMessage: &protobuf.ServerPacket_PlayerMessage{
-				From:    from,
-				Message: clientMessage.Message,
-			},
-		},
-		ServerTimestamp: time.Now().UnixMilli(),
-	}
+	serverPacket := protobuf.MakePacketPlayerMessage(from, clientMessage.Message)
 
 	bytesPacket, err := proto.Marshal(serverPacket)
 
@@ -363,156 +387,9 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 	}
 }
 
-func (r *room) handleTick(now time.Time) {
-	if now.Before(r.nextTick) {
-		return
-	}
-
-	switch r.phase {
-	case PHASE_CHOOSING_WORD:
-		r.transitionToDrawing()
-	case PHASE_DRAWING:
-		r.transitionToTurnSummary()
-	case PHASE_TURN_SUMMARY:
-		r.transitionToChoosingWord()
-	case PHASE_GAMEEND:
-	}
-}
-
-func (r *room) transitionToChoosingWord() {
-	r.phase = PHASE_CHOOSING_WORD
-	r.currentWord = ""
-	r.guessersCount = 0
-	for _, ps := range r.playerStates {
-		ps.hasGuessed = false
-	}
-	if r.currentDrawer == "" {
-		r.drawerIndex = len(r.playerStates) - 1
-	} else if r.drawerIndex == 0 {
-		r.transitionToNextRound()
-		return
-	} else {
-		r.drawerIndex--
-	}
-	r.currentDrawer = r.playerStates[r.drawerIndex].username
-
-	words := r.randomWordsGenerator.Generate(r.wordsCount)
-	r.wordChoices = words
-
-	plzChoose := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PleaseChooseAWord_{
-			PleaseChooseAWord: &protobuf.ServerPacket_PleaseChooseAWord{
-				Words: words,
-			},
-		},
-	}
-
-	playerIsChoosing := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerIsChoosingWord_{
-			PlayerIsChoosingWord: &protobuf.ServerPacket_PlayerIsChoosingWord{
-				Username: r.currentDrawer,
-			},
-		},
-	}
-
-	r.broadcastTo(plzChoose, r.playerStates[r.drawerIndex].player)
-	r.broadcastToAllExcept(playerIsChoosing, r.playerStates[r.drawerIndex].player)
-	r.nextTick = time.Now().Add(r.choosingWordDuration)
-}
-
-func (r *room) transitionToDrawing() {
-	r.phase = PHASE_DRAWING
-	if r.currentWord == "" {
-		r.currentWord = r.wordChoices[0]
-	}
-
-	drawerState := r.playerStates[r.drawerIndex]
-
-	playerStartedDrawing := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_PlayerIsDrawing_{
-			PlayerIsDrawing: &protobuf.ServerPacket_PlayerIsDrawing{
-				Username: drawerState.username,
-			},
-		},
-	}
-
-	yourTurn := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_YourTurnToDraw_{
-			YourTurnToDraw: &protobuf.ServerPacket_YourTurnToDraw{
-				Word: r.currentWord,
-			},
-		},
-	}
-
-	r.broadcastToAllExcept(playerStartedDrawing, drawerState.player)
-	r.broadcastTo(yourTurn, drawerState.player)
-	r.nextTick = time.Now().Add(r.drawingDuration)
-}
-
-func (r *room) transitionToTurnSummary() {
-	r.phase = PHASE_TURN_SUMMARY
-	clear(r.drawingHistory)
-	r.drawingHistory = r.drawingHistory[:0]
-
-	x := &protobuf.ServerPacket_TurnSummary{
-		WordReveal: r.currentWord,
-		Deltas:     []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{},
-	}
-	turnSummary := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_TurnSummary_{
-			TurnSummary: x,
-		},
-	}
-
-	for _, ps := range r.playerStates {
-		x.Deltas = append(x.Deltas, &protobuf.ServerPacket_TurnSummary_ScoreDeltas{
-			ScoreDelta: int64(ps.scoreIncrement),
-			Username:   ps.username,
-		})
-	}
-
-	r.broadcastToAll(turnSummary)
-	r.nextTick = time.Now().Add(5 * time.Second)
-}
-
-func (r *room) transitionToNextRound() {
-	r.round++
-	if r.round > r.roundsCount {
-		r.transitionToGameEnd()
-		return
-	}
-	nextRound := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_RoundUpdate_{
-			RoundUpdate: &protobuf.ServerPacket_RoundUpdate{
-				RoundNumber: int64(r.round),
-			},
-		},
-	}
-
-	r.broadcastToAll(nextRound)
-	r.transitionToChoosingWord()
-}
-
-func (r *room) transitionToGameEnd() {
-	r.phase = PHASE_GAMEEND
-	leaderboard := &protobuf.ServerPacket{
-		Payload: &protobuf.ServerPacket_Leaderboard{},
-	}
-
-	r.broadcastToAll(leaderboard)
-	r.clearResources()
-}
-
-func (r *room) clearResources() {
-	for _, ps := range r.playerStates {
-		ps.player.CancelAndRelease()
-	}
-
-	r.parentLobby.RemoveRoom(r.id)
-	r.playerStates = nil
-	r.wordChoices = nil
-	r.drawingHistory = nil
-}
+/*
+	Broadcasting Functions
+*/
 
 func (r *room) broadcastToAll(serverPacket *protobuf.ServerPacket) {
 	bytesPacket, err := proto.Marshal(serverPacket)
@@ -555,15 +432,100 @@ func (r *room) broadcastToAllExcept(serverPacket *protobuf.ServerPacket, player 
 	}
 }
 
-func (r *room) updateDescription() {
-	if r.private {
+/*
+	TRANSITIONS between states
+*/
+
+func (r *room) transitionToChoosingWord() {
+	r.phase = PHASE_CHOOSING_WORD
+	r.currentWord = ""
+	r.guessersCount = 0
+	for _, ps := range r.playerStates {
+		ps.hasGuessed = false
+	}
+	if r.currentDrawer == "" {
+		r.drawerIndex = len(r.playerStates) - 1
+	} else if r.drawerIndex == 0 {
+		r.transitionToNextRound()
+		return
+	} else {
+		r.drawerIndex--
+	}
+	r.currentDrawer = r.playerStates[r.drawerIndex].username
+
+	words := r.randomWordsGenerator.Generate(r.wordsCount)
+	r.wordChoices = words
+
+	plzChoose := protobuf.MakePacketPleaseChooseAWord(words)
+
+	playerIsChoosing := protobuf.MakePacketPlayerIsChoosingWord(r.currentDrawer)
+
+	r.broadcastTo(plzChoose, r.playerStates[r.drawerIndex].player)
+	r.broadcastToAllExcept(playerIsChoosing, r.playerStates[r.drawerIndex].player)
+	r.nextTick = time.Now().Add(r.choosingWordDuration)
+}
+
+func (r *room) transitionToDrawing() {
+	r.phase = PHASE_DRAWING
+	if r.currentWord == "" {
+		r.currentWord = r.wordChoices[0]
+	}
+
+	drawerState := r.playerStates[r.drawerIndex]
+
+	playerStartedDrawing := protobuf.MakePacketPlayerIsDrawing(drawerState.username)
+
+	yourTurn := protobuf.MakePacketYourTurnToDraw(r.currentWord)
+
+	r.broadcastToAllExcept(playerStartedDrawing, drawerState.player)
+	r.broadcastTo(yourTurn, drawerState.player)
+	r.nextTick = time.Now().Add(r.drawingDuration)
+}
+
+func (r *room) transitionToTurnSummary() {
+	r.phase = PHASE_TURN_SUMMARY
+	clear(r.drawingHistory)
+	r.drawingHistory = r.drawingHistory[:0]
+
+	deltas := []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{}
+
+	for _, ps := range r.playerStates {
+		deltas = append(deltas, &protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+			ScoreDelta: int64(ps.scoreIncrement),
+			Username:   ps.username,
+		})
+	}
+
+	turnSummary := protobuf.MakePacketTurnSummary(r.currentWord, deltas)
+
+	r.broadcastToAll(turnSummary)
+	r.nextTick = time.Now().Add(5 * time.Second)
+}
+
+func (r *room) transitionToNextRound() {
+	r.round++
+	if r.round > r.roundsCount {
+		r.transitionToGameEnd()
 		return
 	}
-	desc := roomDescription{
-		id:           r.id,
-		playersCount: len(r.playerStates),
-		maxPlayers:   r.maxPlayers,
-		started:      r.phase != PHASE_PENDING,
+	nextRound := protobuf.MakePacketRoundUpdate(int64(r.round))
+
+	r.broadcastToAll(nextRound)
+	r.transitionToChoosingWord()
+}
+
+func (r *room) transitionToGameEnd() {
+	r.phase = PHASE_GAMEEND
+	leaderboard := protobuf.MakePacketLeaderBoard()
+
+	r.broadcastToAll(leaderboard)
+
+	for _, ps := range r.playerStates {
+		ps.player.CancelAndRelease()
 	}
-	r.parentLobby.RequestUpdateDescription(desc)
+
+	r.parentLobby.RemoveRoom(r.id)
+	r.playerStates = nil
+	r.wordChoices = nil
+	r.drawingHistory = nil
 }

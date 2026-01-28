@@ -40,7 +40,7 @@ func (m *JWTManager) Generate(id string, now time.Time) (string, error) {
 	signedToken, err := token.SignedString(m.secretKey)
 
 	if err != nil {
-		return "", nil
+		return "", fmt.Errorf("%w: %w", domain.UnexpectedTokenGenerationError, err)
 	}
 
 	return signedToken, nil
