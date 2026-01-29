@@ -11,7 +11,7 @@ func NewIdGen() idgen {
 		ids: make(map[string]struct{}),
 	}
 }
-func (idgen *idgen) GetUniqueId() string {
+func (idgen *idgen) Generate() string {
 	idgen.locker.Lock()
 	defer idgen.locker.Unlock()
 	var id string
@@ -33,7 +33,7 @@ func (idgen *idgen) GetUniqueId() string {
 	return id
 }
 
-func (idgen *idgen) DisposeId(id string) {
+func (idgen *idgen) Dispose(id string) {
 	idgen.locker.Lock()
 	defer idgen.locker.Unlock()
 	delete(idgen.ids, id)

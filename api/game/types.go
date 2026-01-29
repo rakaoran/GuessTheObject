@@ -28,7 +28,7 @@ type UniqueIdGenerator interface {
 }
 
 type PeriodicTickerChannelCreator interface {
-	Create(duration time.Duration) chan time.Time
+	Create(duration time.Duration) <-chan time.Time
 }
 type UserGetter interface {
 	GetUserById(ctx context.Context, id string) (domain.User, error)
@@ -166,3 +166,5 @@ type GameHandler struct {
 	userGetter           UserGetter
 	randomWordsGenerator RandomWordsGenerator
 }
+
+type ticker struct{}

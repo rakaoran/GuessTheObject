@@ -65,7 +65,7 @@ type MockPeriodicTickerChannelCreator struct {
 	mock.Mock
 }
 
-func (m *MockPeriodicTickerChannelCreator) Create(duration time.Duration) chan time.Time {
+func (m *MockPeriodicTickerChannelCreator) Create(duration time.Duration) <-chan time.Time {
 	args := m.Called(duration)
 	return args.Get(0).(chan time.Time)
 }
