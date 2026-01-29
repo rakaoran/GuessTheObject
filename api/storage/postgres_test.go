@@ -17,7 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 )
 
-var repo *storage.PostgresPlayerRepo
+var repo *storage.PostgresRepo
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
@@ -93,4 +93,82 @@ func TestPostgresRepo(t *testing.T) {
 		assert.Equal(t, "hash2", user.PasswordHash)
 		assert.Equal(t, "tester2", user.Username)
 	})
+}
+
+func TestGenerate(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("Generate returns random words", func(t *testing.T) {
+		count := 5
+		words := repo.Generate(count)
+
+		assert.Len(t, words, count, "Should return requested number of words")
+
+		// Verify words are unique
+		wordSet := make(map[string]bool)
+		for _, word := range words {
+			assert.False(t, wordSet[word], "Words should be unique: %s", word)
+			assert.NotEmpty(t, word, "Words should not be empty")
+			wordSet[word] = true
+		}
+	})
+
+	t.Run("Generate with count of 3", func(t *testing.T) {
+		words := repo.Generate(3)
+		assert.Len(t, words, 3)
+	})
+
+	t.Run("Generate with count of 1", func(t *testing.T) {
+		words := repo.Generate(1)
+		assert.Len(t, words, 1)
+	})
+
+	t.Run("Generate with count of 0 returns empty slice", func(t *testing.T) {
+		words := repo.Generate(0)
+		assert.Empty(t, words)
+	})
+
+	t.Run("Generate multiple times gives different results", func(t *testing.T) {
+		words1 := repo.Generate(5)
+		words2 := repo.Generate(5)
+
+		assert.Len(t, words1, 5)
+		assert.Len(t, words2, 5)
+
+		allWords, err := getAllWords(ctx)
+		require.NoError(t, err)
+
+		for _, word := range words1 {
+			assert.Contains(t, allWords, word, "Word should be from database")
+		}
+		for _, word := range words2 {
+			assert.Contains(t, allWords, word, "Word should be from database")
+		}
+	})
+
+	t.Run("Generate more than available words", func(t *testing.T) {
+		words := repo.Generate(1000)
+
+		assert.NotEmpty(t, words)
+		assert.LessOrEqual(t, len(words), 1000)
+	})
+}
+
+func getAllWords(ctx context.Context) ([]string, error) {
+	query := "SELECT word FROM words"
+	rows, err := repo.GetPool().Query(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var words []string
+	for rows.Next() {
+		var word string
+		if err := rows.Scan(&word); err != nil {
+			return nil, err
+		}
+		words = append(words, word)
+	}
+	return words, rows.Err()
 }
