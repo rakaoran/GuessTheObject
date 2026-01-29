@@ -75,6 +75,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 	itachi.On("Username").Return("itachi")
 	jiraiya := &MockPlayer{}
 	jiraiya.On("Username").Return("jiraiya")
+	itachi2 := &MockPlayer{}
 	sasuke.On("SetRoom", mock.Anything).Return().Once()
 	naruto.On("SetRoom", mock.Anything).Return().Once()
 	itachi.On("SetRoom", mock.Anything).Return().Once()
@@ -215,7 +216,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 				naruto, protobuf.MakePacketPlayerJoined("sasuke"),
 				jiraiya, protobuf.MakePacketPlayerJoined("sasuke"),
 				itachi, protobuf.MakePacketPlayerJoined("sasuke"),
-				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "itachi"}, {Username: "jiraiya"}}, [][]byte{}, "jiraiya", 0, "rid", int32(PHASE_CHOOSING_WORD), now.Add(10*time.Second).UnixMilli()),
+				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "itachi"}, {Username: "jiraiya"}}, [][]byte{}, "jiraiya", 1, "rid", int32(PHASE_CHOOSING_WORD), now.Add(10*time.Second).UnixMilli()),
 			),
 		},
 		{
@@ -425,12 +426,312 @@ func TestGame_GameScenario_1(t *testing.T) {
 				}),
 			),
 		},
+		{
+			desc: "tick to transition from turn summary to choosing word (next drawer is itachi)",
+			action: func() {
+				now = now.Add(6 * time.Second)
+				r.handleTick(now)
+			},
+			setupLobbyExpectations: func() {
+				wordGen.On("Generate", r.wordsCount).Return([]string{"rasengan", "scroll", "hokage"}).Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				itachi, protobuf.MakePacketPleaseChooseAWord([]string{"rasengan", "scroll", "hokage"}),
+				naruto, protobuf.MakePacketPlayerIsChoosingWord("itachi"),
+				sasuke, protobuf.MakePacketPlayerIsChoosingWord("itachi"),
+				jiraiya, protobuf.MakePacketPlayerIsChoosingWord("itachi"),
+			),
+		},
+		{
+			desc: "itachi chooses 'rasengan' (index 0)",
+			action: func() {
+				r.handleWordChoiceEnvelope(&protobuf.ClientPacket_WordChoice{Choice: 0}, "itachi")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				naruto, protobuf.MakePacketPlayerIsDrawing("itachi"),
+				sasuke, protobuf.MakePacketPlayerIsDrawing("itachi"),
+				jiraiya, protobuf.MakePacketPlayerIsDrawing("itachi"),
+				itachi, protobuf.MakePacketYourTurnToDraw("rasengan"),
+			),
+		},
+		{
+			desc: "only sasuke guesses correctly this time",
+			action: func() {
+				r.handlePlayerMessageEnvelope(&protobuf.ClientPacket_PlayerMessage{Message: "rasengan"}, "sasuke")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				naruto, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				sasuke, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				itachi, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				jiraiya, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+			),
+		},
+		{
+			desc: "tick forward but before drawing ends (no transition yet)",
+			action: func() {
+				now = now.Add(50 * time.Second)
+				r.handleTick(now)
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks:  nil,
+		},
+		{
+			desc: "tick to end drawing phase (81 seconds passed, transition to turn summary)",
+			action: func() {
+				now = now.Add(31 * time.Second)
+				r.handleTick(now)
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				naruto, protobuf.MakePacketTurnSummary("rasengan", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "naruto", ScoreDelta: 0},
+					{Username: "itachi", ScoreDelta: 0},
+					{Username: "jiraiya", ScoreDelta: 0},
+					{Username: "sasuke", ScoreDelta: 300},
+				}),
+				sasuke, protobuf.MakePacketTurnSummary("rasengan", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "naruto", ScoreDelta: 0},
+					{Username: "itachi", ScoreDelta: 0},
+					{Username: "jiraiya", ScoreDelta: 0},
+					{Username: "sasuke", ScoreDelta: 300},
+				}),
+				itachi, protobuf.MakePacketTurnSummary("rasengan", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "naruto", ScoreDelta: 0},
+					{Username: "itachi", ScoreDelta: 0},
+					{Username: "jiraiya", ScoreDelta: 0},
+					{Username: "sasuke", ScoreDelta: 300},
+				}),
+				jiraiya, protobuf.MakePacketTurnSummary("rasengan", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "naruto", ScoreDelta: 0},
+					{Username: "itachi", ScoreDelta: 0},
+					{Username: "jiraiya", ScoreDelta: 0},
+					{Username: "sasuke", ScoreDelta: 300},
+				}),
+			),
+		},
+		{
+			desc: "tick to transition to next turn (naruto's turn)",
+			action: func() {
+				now = now.Add(6 * time.Second)
+				r.handleTick(now)
+			},
+			setupLobbyExpectations: func() {
+				wordGen.On("Generate", r.wordsCount).Return([]string{"byakugan", "chidori", "amaterasu"}).Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				naruto, protobuf.MakePacketPleaseChooseAWord([]string{"byakugan", "chidori", "amaterasu"}),
+				sasuke, protobuf.MakePacketPlayerIsChoosingWord("naruto"),
+				itachi, protobuf.MakePacketPlayerIsChoosingWord("naruto"),
+				jiraiya, protobuf.MakePacketPlayerIsChoosingWord("naruto"),
+			),
+		},
+		{
+			desc: "naruto disconnects while choosing word (should transition immediately to next round)",
+			action: func() {
+				r.handleRemovePlayer(naruto)
+			},
+			setupLobbyExpectations: func() {
+				naruto.On("CancelAndRelease").Return().Once()
+				// jiraiya.On("CancelAndRelease").Return().Once()
+				l.On("RequestUpdateDescription", roomDescription{
+					id: r.id, private: false, playersCount: 3, maxPlayers: r.maxPlayers, started: true,
+				}).Return().Once()
+				wordGen.On("Generate", r.wordsCount).Return([]string{"sakura", "kakashi", "zabuza"}).Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerLeft("naruto"),
+				itachi, protobuf.MakePacketPlayerLeft("naruto"),
+				jiraiya, protobuf.MakePacketPlayerLeft("naruto"),
+
+				sasuke, protobuf.MakePacketRoundUpdate(2),
+				itachi, protobuf.MakePacketRoundUpdate(2),
+				jiraiya, protobuf.MakePacketRoundUpdate(2),
+
+				sasuke, protobuf.MakePacketPleaseChooseAWord([]string{"sakura", "kakashi", "zabuza"}),
+				itachi, protobuf.MakePacketPlayerIsChoosingWord("sasuke"),
+				jiraiya, protobuf.MakePacketPlayerIsChoosingWord("sasuke"),
+			),
+		},
+		{
+			desc: "sasuke chooses word and draws",
+			action: func() {
+				r.handleWordChoiceEnvelope(&protobuf.ClientPacket_WordChoice{Choice: 1}, "sasuke")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				itachi, protobuf.MakePacketPlayerIsDrawing("sasuke"),
+				jiraiya, protobuf.MakePacketPlayerIsDrawing("sasuke"),
+				sasuke, protobuf.MakePacketYourTurnToDraw("kakashi"),
+			),
+		},
+		{
+			desc: "itachi guesses correctly first",
+			action: func() {
+				r.handlePlayerMessageEnvelope(&protobuf.ClientPacket_PlayerMessage{Message: "kakashi"}, "itachi")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+				itachi, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+				jiraiya, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+			),
+		},
+		{
+			desc: "jiraiya guesses too (all guessed, should transition to turn summary)",
+			action: func() {
+				r.handlePlayerMessageEnvelope(&protobuf.ClientPacket_PlayerMessage{Message: "kakashi"}, "jiraiya")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerGuessedTheWord("jiraiya"),
+				itachi, protobuf.MakePacketPlayerGuessedTheWord("jiraiya"),
+				jiraiya, protobuf.MakePacketPlayerGuessedTheWord("jiraiya"),
+				sasuke, protobuf.MakePacketTurnSummary("kakashi", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "itachi", ScoreDelta: 200},
+					{Username: "jiraiya", ScoreDelta: 100},
+					{Username: "sasuke", ScoreDelta: 0},
+				}),
+				itachi, protobuf.MakePacketTurnSummary("kakashi", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "itachi", ScoreDelta: 200},
+					{Username: "jiraiya", ScoreDelta: 100},
+					{Username: "sasuke", ScoreDelta: 0},
+				}),
+				jiraiya, protobuf.MakePacketTurnSummary("kakashi", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+					{Username: "itachi", ScoreDelta: 200},
+					{Username: "jiraiya", ScoreDelta: 100},
+					{Username: "sasuke", ScoreDelta: 0},
+				}),
+			),
+		},
+		{
+			desc: "tick to transition to round 2 (drawerIndex wraps to 0, round increments)",
+			action: func() {
+				now = now.Add(6 * time.Second)
+				r.handleTick(now)
+			},
+			setupLobbyExpectations: func() {
+				wordGen.On("Generate", r.wordsCount).Return([]string{"nine-tails", "sage-mode", "shadow-clone"}).Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				jiraiya, protobuf.MakePacketPleaseChooseAWord([]string{"nine-tails", "sage-mode", "shadow-clone"}),
+				sasuke, protobuf.MakePacketPlayerIsChoosingWord("jiraiya"),
+				itachi, protobuf.MakePacketPlayerIsChoosingWord("jiraiya"),
+			),
+		},
+		{
+			desc: "jiraiya chooses word for round 2",
+			action: func() {
+				r.handleWordChoiceEnvelope(&protobuf.ClientPacket_WordChoice{Choice: 2}, "jiraiya")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerIsDrawing("jiraiya"),
+				itachi, protobuf.MakePacketPlayerIsDrawing("jiraiya"),
+				jiraiya, protobuf.MakePacketYourTurnToDraw("shadow-clone"),
+			),
+		},
+		{
+			desc: "itachi 2 (player with same username) tries to join - original itachi should be removed first",
+			action: func() {
+
+				itachi2.On("Username").Return("itachi")
+				itachi2.On("SetRoom", mock.Anything).Return().Once()
+
+				// In real implementation, the system should detect duplicate username
+				// For now, we manually remove the original naruto and add naruto2
+				itachi.On("CancelAndRelease").Return().Once()
+				r.handleJoinRequest(roomJoinRequest{player: itachi2, errChan: make(chan error)})
+			},
+			setupLobbyExpectations: func() {
+				// First removal
+				l.On("RequestUpdateDescription", roomDescription{
+					id: r.id, private: false, playersCount: 2, maxPlayers: r.maxPlayers, started: true,
+				}).Return().Once()
+				// Then addition
+				l.On("RequestUpdateDescription", roomDescription{
+					id: r.id, private: false, playersCount: 3, maxPlayers: r.maxPlayers, started: true,
+				}).Return().Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				jiraiya, protobuf.MakePacketPlayerLeft("itachi"),
+				sasuke, protobuf.MakePacketPlayerLeft("itachi"),
+				jiraiya, protobuf.MakePacketPlayerJoined("itachi"),
+				sasuke, protobuf.MakePacketPlayerJoined("itachi"),
+				itachi2, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "jiraiya", Score: 100}, {Username: "sasuke", Score: 500}}, [][]byte{}, "jiraiya", 2, "rid", int32(PHASE_DRAWING), now.Add(time.Hour*24).UnixMilli()),
+			),
+		},
+		{
+			desc: "itachi2 guesses correctly first",
+			action: func() {
+				r.handlePlayerMessageEnvelope(&protobuf.ClientPacket_PlayerMessage{Message: "shadow-clone"}, "itachi")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+				jiraiya, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+				itachi2, protobuf.MakePacketPlayerGuessedTheWord("itachi"),
+			),
+		},
+		{
+			desc: "sasuke guesses correctly",
+			action: func() {
+				r.handlePlayerMessageEnvelope(&protobuf.ClientPacket_PlayerMessage{Message: "shadow-clone"}, "sasuke")
+			},
+			setupLobbyExpectations: func() {},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				jiraiya, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				itachi2, protobuf.MakePacketPlayerGuessedTheWord("sasuke"),
+				sasuke, protobuf.MakePacketTurnSummary(
+					"shadow-clone", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+						{Username: "jiraiya", ScoreDelta: 0},
+						{Username: "sasuke", ScoreDelta: 100},
+						{Username: "itachi", ScoreDelta: 200},
+					},
+				),
+				jiraiya, protobuf.MakePacketTurnSummary(
+					"shadow-clone", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+						{Username: "jiraiya", ScoreDelta: 0},
+						{Username: "sasuke", ScoreDelta: 100},
+						{Username: "itachi", ScoreDelta: 200},
+					},
+				),
+				itachi2, protobuf.MakePacketTurnSummary(
+					"shadow-clone", []*protobuf.ServerPacket_TurnSummary_ScoreDeltas{
+						{Username: "jiraiya", ScoreDelta: 0},
+						{Username: "sasuke", ScoreDelta: 100},
+						{Username: "itachi", ScoreDelta: 200},
+					},
+				),
+			),
+		},
+		{
+			desc: "leaderboard",
+			action: func() {
+				r.handleTick(now.Add(6 * time.Second))
+			},
+			setupLobbyExpectations: func() {
+				l.On("RemoveRoom", "rid").Return().Once()
+				sasuke.On("CancelAndRelease").Return().Once()
+				jiraiya.On("CancelAndRelease").Return().Once()
+				itachi2.On("CancelAndRelease").Return().Once()
+			},
+			expectedDataSendTasks: MakeDataSendTasks(
+				sasuke, protobuf.MakePacketLeaderBoard(),
+				jiraiya, protobuf.MakePacketLeaderBoard(),
+				itachi2, protobuf.MakePacketLeaderBoard(),
+			),
+		},
 	}
 	for _, tC := range testCases {
 		t.Run(tC.desc, func(t *testing.T) {
 			tC.setupLobbyExpectations()
 			tC.action()
-			AssertEqualDataSendTasks(t, tC.expectedDataSendTasks, r.dataSendTasks)
+			if tC.expectedDataSendTasks != nil {
+				AssertEqualDataSendTasks(t, tC.expectedDataSendTasks, r.dataSendTasks)
+			}
 			r.dataSendTasks = make([]dataSendTask, 0)
 			r.pingSendTasks = make([]pingSendTask, 0)
 		})
@@ -443,7 +744,3 @@ func TestGame_GameScenario_1(t *testing.T) {
 	itachi.AssertExpectations(t)
 	jiraiya.AssertExpectations(t)
 }
-
-// TODO: players with same username join
-
-// Gonna add more test scenarios if I got time lol

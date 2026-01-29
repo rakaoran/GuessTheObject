@@ -209,6 +209,14 @@ func (r *room) addPlayer(p Player) error {
 	if len(r.playerStates) >= r.maxPlayers {
 		return ErrRoomFull
 	}
+	pUsername := p.Username()
+
+	for _, ps := range r.playerStates {
+		if ps.username == pUsername {
+			r.handleRemovePlayer(ps.player)
+			break
+		}
+	}
 
 	pStates := make([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState, 0, len(r.playerStates))
 	for _, ps := range r.playerStates {
@@ -218,7 +226,6 @@ func (r *room) addPlayer(p Player) error {
 			IsGuesser: ps.hasGuessed,
 		})
 	}
-	pUsername := p.Username()
 	playerJoined := protobuf.MakePacketPlayerJoined(pUsername)
 	r.broadcastToAll(playerJoined)
 	initialRoomSnapshot := protobuf.MakePacketInitialRoomSnapshot(pStates, r.drawingHistory, r.currentDrawer, int32(r.round), r.id, int32(r.phase), r.nextTick.UnixMilli())
@@ -240,6 +247,7 @@ func (r *room) handleRemovePlayer(toRemove Player) {
 			if i < r.drawerIndex {
 				r.drawerIndex--
 			} else if i == r.drawerIndex {
+				r.drawerIndex--
 				r.transitionToChoosingWord()
 			}
 			if len(r.playerStates) <= 1 && r.phase != PHASE_PENDING {
@@ -328,6 +336,7 @@ func (r *room) handleStartGameEnvelope(from string) {
 
 	pkt := protobuf.MakePacketGameStarted()
 	r.broadcastToAll(pkt)
+	r.round = 1
 	r.transitionToChoosingWord()
 	r.updateDescription()
 }
@@ -442,10 +451,12 @@ func (r *room) transitionToChoosingWord() {
 	r.guessersCount = 0
 	for _, ps := range r.playerStates {
 		ps.hasGuessed = false
+		ps.score += ps.scoreIncrement
+		ps.scoreIncrement = 0
 	}
 	if r.currentDrawer == "" {
 		r.drawerIndex = len(r.playerStates) - 1
-	} else if r.drawerIndex == 0 {
+	} else if r.drawerIndex <= 0 {
 		r.transitionToNextRound()
 		return
 	} else {
@@ -509,6 +520,8 @@ func (r *room) transitionToNextRound() {
 		return
 	}
 	nextRound := protobuf.MakePacketRoundUpdate(int64(r.round))
+
+	r.currentDrawer = ""
 
 	r.broadcastToAll(nextRound)
 	r.transitionToChoosingWord()
