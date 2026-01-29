@@ -37,7 +37,7 @@ func MakePacketInitialRoomSnapshot(players []*ServerPacket_InitialRoomSnapshot_P
 			InitialRoomSnapshot: &ServerPacket_InitialRoomSnapshot{
 				RoomId:         roomId,
 				CurrentPhase:   currentPhase,
-				NextTick:       0,
+				NextTick:       nextTick,
 				PlayersStates:  players,
 				DrawingHistory: history,
 				CurrentDrawer:  currentDrawer,

@@ -157,3 +157,57 @@ func TestCORSHeaders(t *testing.T) {
 		})
 	}
 }
+
+func TestWebsocketHandshakeHeaders(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	r := CreateServer([]string{"http://localhost:3000"})
+
+	r.GET("/ws-test", func(c *gin.Context) {
+		c.Status(http.StatusSwitchingProtocols)
+	})
+
+	tests := []struct {
+		name           string
+		reqHeaders     map[string]string
+		expectedStatus int
+	}{
+		{
+			name: "Valid Websocket Handshake from Allowed Origin",
+			reqHeaders: map[string]string{
+				"Origin":                "http://localhost:3000",
+				"Connection":            "Upgrade",
+				"Upgrade":               "websocket",
+				"Sec-WebSocket-Version": "13",
+				"Sec-WebSocket-Key":     "dGhlIHNhbXBsZSBub25jZQ==",
+			},
+			expectedStatus: http.StatusSwitchingProtocols,
+		},
+		{
+			name: "Websocket Handshake from Evil Origin",
+			reqHeaders: map[string]string{
+				"Origin":                "http://evil.com",
+				"Connection":            "Upgrade",
+				"Upgrade":               "websocket",
+				"Sec-WebSocket-Version": "13",
+				"Sec-WebSocket-Key":     "dGhlIHNhbXBsZSBub25jZQ==",
+			},
+			expectedStatus: http.StatusForbidden,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest("GET", "/ws-test", nil)
+			for k, v := range tc.reqHeaders {
+				req.Header.Set(k, v)
+			}
+
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.expectedStatus, w.Code)
+		})
+	}
+}

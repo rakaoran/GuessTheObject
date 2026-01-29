@@ -22,10 +22,9 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 	r := gin.New()
 	r.GET("/health", func(ctx *gin.Context) { ctx.String(200, "healthy") })
 
-	// CSRF protection
 	r.Use(func(ctx *gin.Context) {
 		origin := ctx.Request.Header.Get("Origin")
-		println(origin)
+
 		if slices.Contains(allowedOrigins, origin) {
 			ctx.Next()
 			return
@@ -34,12 +33,20 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 		ctx.Abort()
 	})
 
-	//CORS config
 	r.Use(cors.New(cors.Config{
 		AllowOrigins:     allowedOrigins,
 		AllowCredentials: true,
-		AllowHeaders:     []string{"Content-Type"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowHeaders: []string{
+			"Content-Type",
+			"Authorization",
+			"Upgrade",
+			"Connection",
+			"Sec-WebSocket-Key",
+			"Sec-WebSocket-Version",
+			"Sec-WebSocket-Extensions",
+			"Sec-WebSocket-Protocol",
+		},
 	}))
 
 	return r
@@ -92,6 +99,19 @@ func main() {
 		auth.POST("/login", authHandler.LoginHandler)
 		auth.POST("/logout", authHandler.LogoutHandler)
 		auth.GET("/refresh", authHandler.RefreshSessionHandler)
+	}
+
+	{
+		gameGroup := r.Group("/game")
+		gameGroup.Use(authHandler.RequireAuthMiddleware(time.Second * 2))
+
+		// POST /game/create - Create a new game room (WebSocket upgrade)
+		// Body: {"private": bool, "maxPlayers": int, "roundsCount": int,
+		//        "wordsCount": int, "choosingWordDuration": int, "drawingDuration": int}
+		// gameGroup.POST("/create", gameHandler.CreateGameHandler)
+
+		// GET /game/join/:roomid - Join an existing game room (WebSocket upgrade)
+		// gameGroup.GET("/join/:roomid", gameHandler.JoinGameHandler)
 	}
 
 	r.Run(":5000")

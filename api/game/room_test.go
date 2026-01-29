@@ -103,16 +103,12 @@ func TestRoom_Send(t *testing.T) {
 
 func TestRoom_RequestJoin(t *testing.T) {
 	r, _, _ := setupRoom()
+	r.maxPlayers = 1
 	p := &MockPlayer{}
 
 	req := roomJoinRequest{roomId: "room1", player: p, errChan: make(chan error, 1)}
 	go r.GameLoop()
-	done := make(chan struct{})
-	go func() {
-		r.RequestJoin(req)
-		close(done)
-	}()
-
+	r.joinReqs <- req
 	select {
 	case <-req.errChan:
 	case <-time.After(2 * time.Second):
@@ -169,13 +165,14 @@ func TestRoom_GameLoop_Reads_Ticks_And_Updates_Phase(t *testing.T) {
 	go r.GameLoop()
 
 	r.phase = PHASE_TURN_SUMMARY
+	r.nextTick = time.Now().Add(time.Second * 10)
 
 	futureTime := time.Now().Add(20 * time.Minute)
 	r.ticks <- futureTime
 
 	assert.Eventually(t, func() bool {
 		return r.phase == PHASE_CHOOSING_WORD
-	}, time.Second, 50*time.Millisecond, "GameLoop should read tick and update phase")
+	}, time.Second, 50*time.Millisecond, "GameLoop should read tick and but stuck at phase %d", r.phase)
 	wgen.AssertExpectations(t)
 	p.AssertExpectations(t)
 }
@@ -190,12 +187,13 @@ func TestRoom_GameLoop_Reads_Ping_And_Queues_Task(t *testing.T) {
 }
 
 func TestRoom_GameLoop_Inbox_Sends_Data(t *testing.T) {
-	r, host, _ := setupRoom()
+	r, host, wgen := setupRoom()
 	lobby := &MockLobby{}
 	lobby.On("RequestUpdateDescription", mock.Anything).Return()
 	r.SetParentLobby(lobby)
 
 	host.On("Send", mock.Anything).Return(nil)
+	wgen.On("Generate", 3).Return([]string{"lil"})
 
 	go r.GameLoop()
 

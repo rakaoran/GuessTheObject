@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
 )
 
@@ -154,4 +155,14 @@ type lobby struct {
 type idgen struct {
 	ids    map[string]struct{}
 	locker sync.Mutex
+}
+
+type GorillaWebSocketWrapper struct {
+	conn *websocket.Conn
+}
+
+type GameHandler struct {
+	lobby                Lobby
+	userGetter           UserGetter
+	randomWordsGenerator RandomWordsGenerator
 }
