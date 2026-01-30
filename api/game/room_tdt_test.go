@@ -745,5 +745,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 	naruto.AssertExpectations(t)
 	sasuke.AssertExpectations(t)
 	itachi.AssertExpectations(t)
+
 	jiraiya.AssertExpectations(t)
 }

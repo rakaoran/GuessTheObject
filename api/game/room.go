@@ -123,6 +123,9 @@ func (r *room) SetId(id string) {
 }
 
 func (r *room) GameLoop() {
+	m := protobuf.MakePacketInitialRoomSnapshot(nil, nil, "", 0, r.id, 0, 0)
+	mb, _ := proto.Marshal(m)
+	r.playerStates[0].player.Send(mb)
 	for {
 		if r.phase == PHASE_GAMEEND {
 			return
@@ -243,17 +246,25 @@ func (r *room) handleRemovePlayer(toRemove Player) {
 	for i, ps := range r.playerStates {
 		if ps.player == toRemove {
 			r.playerStates = append(r.playerStates[0:i], r.playerStates[i+1:]...)
+			toRemove.CancelAndRelease()
+			if len(r.playerStates) <= 1 && r.phase != PHASE_PENDING {
+				r.transitionToGameEnd()
+				return
+			}
+
+			if len(r.playerStates) == 0 {
+				r.transitionToGameEnd()
+				return
+			}
 
 			if i < r.drawerIndex {
 				r.drawerIndex--
 			} else if i == r.drawerIndex {
 				r.drawerIndex--
-				r.transitionToChoosingWord()
+				if r.phase != PHASE_PENDING {
+					r.transitionToChoosingWord()
+				}
 			}
-			if len(r.playerStates) <= 1 && r.phase != PHASE_PENDING {
-				r.transitionToGameEnd()
-			}
-			toRemove.CancelAndRelease()
 
 			playerLeft := &protobuf.ServerPacket{
 				Payload: &protobuf.ServerPacket_PlayerLeft_{

@@ -32,16 +32,6 @@ func NewGameHandler(
 	}
 }
 
-// CreateGameRequest represents the JSON body for creating a new game room
-type CreateGameRequest struct {
-	Private              bool  `json:"private"`
-	MaxPlayers           int   `json:"maxPlayers"`
-	RoundsCount          int   `json:"roundsCount"`
-	WordsCount           int   `json:"wordsCount"`
-	ChoosingWordDuration int64 `json:"choosingWordDuration"` // in seconds
-	DrawingDuration      int64 `json:"drawingDuration"`      // in seconds
-}
-
 func validateCreateGameRequest(req CreateGameRequest) error {
 	if req.MaxPlayers < 2 {
 		return errors.New("maxPlayers must be at least 2")
@@ -76,6 +66,15 @@ func validateCreateGameRequest(req CreateGameRequest) error {
 	return nil
 }
 
+type CreateGameRequest struct {
+	Private              bool  `form:"private"`
+	MaxPlayers           int   `form:"maxPlayers"`
+	RoundsCount          int   `form:"roundsCount"`
+	WordsCount           int   `form:"wordsCount"`
+	ChoosingWordDuration int64 `form:"choosingWordDuration"` // in seconds
+	DrawingDuration      int64 `form:"drawingDuration"`      // in seconds
+}
+
 func (gh *GameHandler) CreateGameHandler(ctx *gin.Context) {
 	userId, exists := ctx.Get("id")
 	if !exists {
@@ -90,7 +89,7 @@ func (gh *GameHandler) CreateGameHandler(ctx *gin.Context) {
 	}
 
 	var req CreateGameRequest
-	if err := ctx.ShouldBindJSON(&req); err != nil {
+	if err := ctx.ShouldBindQuery(&req); err != nil {
 		ctx.String(http.StatusBadRequest, "invalid-request-format")
 		return
 	}
@@ -130,7 +129,6 @@ func (gh *GameHandler) CreateGameHandler(ctx *gin.Context) {
 
 	gh.lobby.RequestAddAndRunRoom(ctx.Request.Context(), room)
 
-	// Start player pumps
 	go player.ReadPump(wsConn)
 	go player.WritePump(wsConn)
 }

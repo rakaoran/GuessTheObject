@@ -4,6 +4,7 @@ import (
 	"api/auth"
 	"api/config"
 	"api/crypto"
+	"api/game"
 	"api/storage"
 	"context"
 	"log"
@@ -92,7 +93,6 @@ func main() {
 
 	r := CreateServer(allowedOrigins)
 
-	// ! WARNING, make sure the Routes are correctly binded as the bindings are not tested
 	{
 		auth := r.Group("/auth")
 		auth.POST("/signup", authHandler.SignupHandler)
@@ -101,17 +101,23 @@ func main() {
 		auth.GET("/refresh", authHandler.RefreshSessionHandler)
 	}
 
+	idGen := game.NewIdGen()
+	tickerGen := game.NewTickerGen()
+
+	lobby := game.NewLobby(&idGen, &tickerGen)
+
+	lobbyStarted := make(chan struct{})
+	go lobby.LobbyActor(lobbyStarted)
+	<-lobbyStarted
+
+	gameHandler := game.NewGameHandler(lobby, pgRepo, pgRepo)
 	{
 		gameGroup := r.Group("/game")
 		gameGroup.Use(authHandler.RequireAuthMiddleware(time.Second * 2))
 
-		// POST /game/create - Create a new game room (WebSocket upgrade)
-		// Body: {"private": bool, "maxPlayers": int, "roundsCount": int,
-		//        "wordsCount": int, "choosingWordDuration": int, "drawingDuration": int}
-		// gameGroup.POST("/create", gameHandler.CreateGameHandler)
+		gameGroup.GET("/create", gameHandler.CreateGameHandler)
 
-		// GET /game/join/:roomid - Join an existing game room (WebSocket upgrade)
-		// gameGroup.GET("/join/:roomid", gameHandler.JoinGameHandler)
+		gameGroup.GET("/join/:roomid", gameHandler.JoinGameHandler)
 	}
 
 	r.Run(":5000")

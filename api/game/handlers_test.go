@@ -2,10 +2,10 @@ package game
 
 import (
 	"api/domain"
-	"bytes"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -20,10 +20,12 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
 
+	baseQuery := "maxPlayers=5&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=60"
+
 	testCases := []struct {
 		name         string
 		setupMocks   func(*MockLobby, *MockUserGetter)
-		body         string
+		query        string
 		userId       string
 		expectedCode int
 		expectedBody string
@@ -31,15 +33,15 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "missing user id",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        baseQuery,
 			userId:       "",
 			expectedCode: http.StatusUnauthorized,
 			expectedBody: "unauthenticated",
 		},
 		{
-			name:         "invalid json",
+			name:         "invalid parameter type",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{invalid}`,
+			query:        "maxPlayers=not-a-number&roundsCount=3",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "invalid-request-format",
@@ -47,7 +49,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "maxPlayers too low",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":1,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=1&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "maxPlayers must be at least 2",
@@ -55,7 +57,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "maxPlayers too high",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":21,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=21&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "maxPlayers cannot exceed 20",
@@ -63,7 +65,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "roundsCount too low",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":0,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=0&wordsCount=3&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "roundsCount must be at least 1",
@@ -71,7 +73,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "roundsCount too high",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":11,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=11&wordsCount=3&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "roundsCount cannot exceed 10",
@@ -79,7 +81,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "wordsCount too low",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":0,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=0&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "wordsCount must be at least 1",
@@ -87,7 +89,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "wordsCount too high",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":6,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=6&choosingWordDuration=30&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "wordsCount cannot exceed 5",
@@ -95,7 +97,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "choosingWordDuration too low",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":4,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=3&choosingWordDuration=4&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "choosingWordDuration must be at least 5 seconds",
@@ -103,7 +105,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "choosingWordDuration too high",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":121,"drawingDuration":60}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=3&choosingWordDuration=121&drawingDuration=60",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "choosingWordDuration cannot exceed 120 seconds",
@@ -111,7 +113,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "drawingDuration too low",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":29}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=29",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "drawingDuration must be at least 30 seconds",
@@ -119,7 +121,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		{
 			name:         "drawingDuration too high",
 			setupMocks:   func(l *MockLobby, u *MockUserGetter) {},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":301}`,
+			query:        "maxPlayers=5&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=301",
 			userId:       "user-123",
 			expectedCode: http.StatusBadRequest,
 			expectedBody: "drawingDuration cannot exceed 300 seconds",
@@ -129,7 +131,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 			setupMocks: func(l *MockLobby, u *MockUserGetter) {
 				u.On("GetUserById", mock.Anything, "user-123").Return(domain.User{}, domain.ErrUserNotFound)
 			},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        baseQuery,
 			userId:       "user-123",
 			expectedCode: http.StatusUnauthorized,
 			expectedBody: "user-not-found",
@@ -139,7 +141,7 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 			setupMocks: func(l *MockLobby, u *MockUserGetter) {
 				u.On("GetUserById", mock.Anything, "user-123").Return(domain.User{}, errors.New("db error"))
 			},
-			body:         `{"maxPlayers":5,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60}`,
+			query:        baseQuery,
 			userId:       "user-123",
 			expectedCode: http.StatusInternalServerError,
 			expectedBody: "failed-to-get-user",
@@ -159,15 +161,16 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 			handler := NewGameHandler(mockLobby, mockUserGetter, mockWordGen)
 
 			router := gin.New()
-			router.POST("/create", func(c *gin.Context) {
+			router.GET("/create", func(c *gin.Context) {
 				if tc.userId != "" {
 					c.Set("id", tc.userId)
 				}
 				handler.CreateGameHandler(c)
 			})
 
-			req := httptest.NewRequest(http.MethodPost, "/create", bytes.NewBufferString(tc.body))
-			req.Header.Set("Content-Type", "application/json")
+			target := "/create?" + tc.query
+			req := httptest.NewRequest(http.MethodGet, target, nil)
+
 			res := httptest.NewRecorder()
 
 			router.ServeHTTP(res, req)
@@ -180,7 +183,6 @@ func TestCreateGameHandler_Validation(t *testing.T) {
 		})
 	}
 }
-
 func TestJoinGameHandler_Validation(t *testing.T) {
 	t.Parallel()
 	gin.SetMode(gin.TestMode)
@@ -395,8 +397,10 @@ func TestCreateGameHandler_Success(t *testing.T) {
 	defer server.Close()
 
 	client := &http.Client{}
-	body := `{"maxPlayers":4,"roundsCount":3,"wordsCount":3,"choosingWordDuration":30,"drawingDuration":60, "private": true}`
-	req, _ := http.NewRequest("GET", server.URL+"/create", strings.NewReader(body))
+
+	// CHANGED: Query params instead of JSON body
+	query := "maxPlayers=4&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=60&private=true"
+	req, _ := http.NewRequest("GET", server.URL+"/create?"+query, nil)
 
 	req.Header.Set("Connection", "Upgrade")
 	req.Header.Set("Upgrade", "websocket")
@@ -458,4 +462,70 @@ func TestJoinGameHandler_Success(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	mockUserGetter.AssertExpectations(t)
 	mockLobby.AssertExpectations(t)
+}
+
+func TestRealGameFlow_Integration(t *testing.T) {
+	// 1. Setup Dependencies
+	mockUserGetter := &MockUserGetter{}
+	mockUserGetter.On("GetUserById", mock.Anything, "host-id").Return(domain.User{Id: "host-id", Username: "HostPlayer"}, nil)
+	mockUserGetter.On("GetUserById", mock.Anything, "joiner-id").Return(domain.User{Id: "joiner-id", Username: "JoinerPlayer"}, nil)
+
+	mockIdGen := &MockUniqueIdGenerator{}
+	mockIdGen.On("Generate").Return("TEST-ROOM")
+	mockIdGen.On("Dispose", "TEST-ROOM").Return()
+
+	tickerGen := NewTickerGen()
+	lobby := NewLobby(mockIdGen, &tickerGen)
+
+	started := make(chan struct{})
+	go lobby.LobbyActor(started)
+	<-started
+
+	gin.SetMode(gin.TestMode)
+	handler := NewGameHandler(lobby, mockUserGetter, &MockRandomWordsGenerator{})
+	router := gin.New()
+
+	router.GET("/create", func(c *gin.Context) {
+		c.Set("id", "host-id")
+		handler.CreateGameHandler(c)
+	})
+	router.GET("/join/:roomid", func(c *gin.Context) {
+		c.Set("id", "joiner-id")
+		handler.JoinGameHandler(c)
+	})
+
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/create"
+	q := url.Values{}
+	q.Add("maxPlayers", "4")
+	q.Add("roundsCount", "3")
+	q.Add("wordsCount", "3")
+	q.Add("choosingWordDuration", "30")
+	q.Add("drawingDuration", "60")
+	q.Add("private", "false")
+
+	hostWs, _, err := websocket.DefaultDialer.Dial(wsURL+"?"+q.Encode(), nil)
+	assert.NoError(t, err)
+	defer hostWs.Close()
+
+	joinURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/join/TEST-ROOM"
+	joinWs, _, err := websocket.DefaultDialer.Dial(joinURL, nil)
+	assert.NoError(t, err)
+	defer joinWs.Close()
+
+	_, msg, err := joinWs.ReadMessage()
+	assert.NoError(t, err)
+	assert.Contains(t, string(msg), "TEST-ROOM")
+
+	_, msg, err = hostWs.ReadMessage()
+	assert.NoError(t, err)
+	assert.Contains(t, string(msg), "TEST-ROOM")
+
+	_, msg, err = hostWs.ReadMessage()
+	assert.NoError(t, err)
+	assert.Contains(t, string(msg), "JoinerPlayer")
+
+	mockUserGetter.AssertExpectations(t)
 }

@@ -102,7 +102,9 @@ func TestRoom_Send(t *testing.T) {
 }
 
 func TestRoom_RequestJoin(t *testing.T) {
-	r, _, _ := setupRoom()
+	r, h, _ := setupRoom()
+	h.On("Send", mock.Anything).Return(nil)
+
 	r.maxPlayers = 1
 	p := &MockPlayer{}
 
@@ -148,7 +150,9 @@ func TestRoom_CloseAndRelease(t *testing.T) {
 }
 
 func TestRoom_GameLoop_Close_And_Release(t *testing.T) {
-	r, _, _ := setupRoom()
+	r, h, _ := setupRoom()
+	h.On("Send", mock.Anything).Return(nil)
+
 	wg := sync.WaitGroup{}
 
 	wg.Go(func() { r.GameLoop() })
@@ -158,6 +162,7 @@ func TestRoom_GameLoop_Close_And_Release(t *testing.T) {
 
 func TestRoom_GameLoop_Reads_Ticks_And_Updates_Phase(t *testing.T) {
 	r, p, wgen := setupRoom()
+	p.On("Send", mock.Anything).Return(nil)
 	wgen.On("Generate", r.wordsCount).Return([]string{"word1", "word2", "word3"})
 	p.On("Send", mock.Anything).Return(nil)
 	assert.Equal(t, PHASE_PENDING, r.phase)
@@ -179,6 +184,7 @@ func TestRoom_GameLoop_Reads_Ticks_And_Updates_Phase(t *testing.T) {
 
 func TestRoom_GameLoop_Reads_Ping_And_Queues_Task(t *testing.T) {
 	r, p, _ := setupRoom()
+	p.On("Send", mock.Anything).Return(nil)
 	p.On("Ping").Return(nil)
 	go r.GameLoop()
 	r.PingPlayers()
