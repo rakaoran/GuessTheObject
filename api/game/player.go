@@ -102,7 +102,9 @@ func (p *player) SetRoom(r Room) {
 }
 func (p *player) CancelAndRelease() {
 	close(p.inbox)
+	p.inbox = nil
 	close(p.pingChan)
+	p.pingChan = nil
 	p.cancelCtx()
 }
 

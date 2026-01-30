@@ -311,7 +311,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			setupLobbyExpectations: func() {},
 			expectedDataSendTasks: MakeDataSendTasks(
-				naruto, protobuf.MakePacketPlayerMessage("naruto", "shuriken"),
 				sasuke, protobuf.MakePacketPlayerMessage("naruto", "shuriken"),
 				itachi, protobuf.MakePacketPlayerMessage("naruto", "shuriken"),
 				jiraiya, protobuf.MakePacketPlayerMessage("naruto", "shuriken"),
@@ -337,7 +336,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			setupLobbyExpectations: func() {},
 			expectedDataSendTasks: MakeDataSendTasks(
-				itachi, protobuf.MakePacketPlayerMessage("itachi", "ez clap"),
 				jiraiya, protobuf.MakePacketPlayerMessage("itachi", "ez clap"),
 			),
 		},
@@ -362,7 +360,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			setupLobbyExpectations: func() {},
 			expectedDataSendTasks: MakeDataSendTasks(
 				itachi, protobuf.MakePacketPlayerMessage("sasuke", "gg"),
-				sasuke, protobuf.MakePacketPlayerMessage("sasuke", "gg"),
 				jiraiya, protobuf.MakePacketPlayerMessage("sasuke", "gg"),
 			),
 		},
@@ -373,7 +370,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			setupLobbyExpectations: func() {},
 			expectedDataSendTasks: MakeDataSendTasks(
-				itachi, protobuf.MakePacketPlayerMessage("itachi", "kunai"),
 				sasuke, protobuf.MakePacketPlayerMessage("itachi", "kunai"),
 				jiraiya, protobuf.MakePacketPlayerMessage("itachi", "kunai"),
 			),
@@ -385,7 +381,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			setupLobbyExpectations: func() {},
 			expectedDataSendTasks: MakeDataSendTasks(
-				naruto, protobuf.MakePacketPlayerMessage("naruto", "hmm what is it"),
 				sasuke, protobuf.MakePacketPlayerMessage("naruto", "hmm what is it"),
 				itachi, protobuf.MakePacketPlayerMessage("naruto", "hmm what is it"),
 				jiraiya, protobuf.MakePacketPlayerMessage("naruto", "hmm what is it"),

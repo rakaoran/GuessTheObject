@@ -396,12 +396,18 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 
 	if r.playerStates[senderIndex].hasGuessed {
 		for i, ps := range r.playerStates {
+			if ps.username == from {
+				continue
+			}
 			if ps.hasGuessed || i == r.drawerIndex {
 				r.dataSendTasks = append(r.dataSendTasks, dataSendTask{to: ps.player, data: bytesPacket})
 			}
 		}
 	} else {
 		for _, ps := range r.playerStates {
+			if ps.username == from {
+				continue
+			}
 			r.dataSendTasks = append(r.dataSendTasks, dataSendTask{to: ps.player, data: bytesPacket})
 		}
 	}
