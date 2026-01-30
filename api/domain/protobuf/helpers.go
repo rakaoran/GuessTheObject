@@ -31,17 +31,19 @@ func MakePacketRoundUpdate(roundNumber int64) *ServerPacket {
 	}
 }
 
-func MakePacketInitialRoomSnapshot(players []*ServerPacket_InitialRoomSnapshot_PlayerState, history [][]byte, currentDrawer string, round int32, roomId string, currentPhase int32, nextTick int64) *ServerPacket {
+func MakePacketInitialRoomSnapshot(players []*ServerPacket_InitialRoomSnapshot_PlayerState, history [][]byte, currentDrawer string, round int32, roomId string, currentPhase int32, nextTick int64, choosingWordDuration, drawingDuration int64) *ServerPacket {
 	return &ServerPacket{
 		Payload: &ServerPacket_InitialRoomSnapshot_{
 			InitialRoomSnapshot: &ServerPacket_InitialRoomSnapshot{
-				RoomId:         roomId,
-				CurrentPhase:   currentPhase,
-				NextTick:       nextTick,
-				PlayersStates:  players,
-				DrawingHistory: history,
-				CurrentDrawer:  currentDrawer,
-				CurrentRound:   round,
+				RoomId:               roomId,
+				CurrentPhase:         currentPhase,
+				NextTick:             nextTick,
+				PlayersStates:        players,
+				DrawingHistory:       history,
+				CurrentDrawer:        currentDrawer,
+				CurrentRound:         round,
+				ChoosingWordDuration: choosingWordDuration,
+				DrawingDuration:      drawingDuration,
 			},
 		},
 		ServerTimestamp: now(),

@@ -123,7 +123,7 @@ func (r *room) SetId(id string) {
 }
 
 func (r *room) GameLoop() {
-	m := protobuf.MakePacketInitialRoomSnapshot(nil, nil, "", 0, r.id, 0, 0)
+	m := protobuf.MakePacketInitialRoomSnapshot(nil, nil, "", 0, r.id, 0, 0, int64(r.choosingWordDuration.Seconds()), int64(r.drawingDuration.Seconds()))
 	mb, _ := proto.Marshal(m)
 	r.playerStates[0].player.Send(mb)
 	for {
@@ -231,7 +231,7 @@ func (r *room) addPlayer(p Player) error {
 	}
 	playerJoined := protobuf.MakePacketPlayerJoined(pUsername)
 	r.broadcastToAll(playerJoined)
-	initialRoomSnapshot := protobuf.MakePacketInitialRoomSnapshot(pStates, r.drawingHistory, r.currentDrawer, int32(r.round), r.id, int32(r.phase), r.nextTick.UnixMilli())
+	initialRoomSnapshot := protobuf.MakePacketInitialRoomSnapshot(pStates, r.drawingHistory, r.currentDrawer, int32(r.round), r.id, int32(r.phase), r.nextTick.UnixMilli(), int64(r.choosingWordDuration.Seconds()), int64(r.drawingDuration.Seconds()))
 
 	r.playerStates = append(r.playerStates, &playerGameState{username: pUsername, player: p})
 	p.SetRoom(r)

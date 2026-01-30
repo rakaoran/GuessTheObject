@@ -112,7 +112,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			expectedDataSendTasks: MakeDataSendTasks(
 				naruto, protobuf.MakePacketPlayerJoined("sasuke"),
-				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli()),
+				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli(), 10, 80),
 			),
 		},
 		{
@@ -128,7 +128,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 			expectedDataSendTasks: MakeDataSendTasks(
 				naruto, protobuf.MakePacketPlayerJoined("itachi"),
 				sasuke, protobuf.MakePacketPlayerJoined("itachi"),
-				itachi, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "sasuke"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli()),
+				itachi, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "sasuke"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli(), 10, 80),
 			),
 		},
 		{
@@ -146,7 +146,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 				naruto, protobuf.MakePacketPlayerJoined("jiraiya"),
 				sasuke, protobuf.MakePacketPlayerJoined("jiraiya"),
 				itachi, protobuf.MakePacketPlayerJoined("jiraiya"),
-				jiraiya, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "sasuke"}, {Username: "itachi"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli()),
+				jiraiya, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "sasuke"}, {Username: "itachi"}}, [][]byte{}, "", 0, "rid", int32(PHASE_PENDING), r.nextTick.UnixMilli(), 10, 80),
 			),
 		},
 		{
@@ -219,7 +219,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 				naruto, protobuf.MakePacketPlayerJoined("sasuke"),
 				jiraiya, protobuf.MakePacketPlayerJoined("sasuke"),
 				itachi, protobuf.MakePacketPlayerJoined("sasuke"),
-				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "itachi"}, {Username: "jiraiya"}}, [][]byte{}, "jiraiya", 1, "rid", int32(PHASE_CHOOSING_WORD), r.nextTick.UnixMilli()),
+				sasuke, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "naruto"}, {Username: "itachi"}, {Username: "jiraiya"}}, [][]byte{}, "jiraiya", 1, "rid", int32(PHASE_CHOOSING_WORD), r.nextTick.UnixMilli(), 10, 80),
 			),
 		},
 		{
@@ -657,7 +657,7 @@ func TestGame_GameScenario_1(t *testing.T) {
 				sasuke, protobuf.MakePacketPlayerLeft("itachi"),
 				jiraiya, protobuf.MakePacketPlayerJoined("itachi"),
 				sasuke, protobuf.MakePacketPlayerJoined("itachi"),
-				itachi2, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "jiraiya", Score: 100}, {Username: "sasuke", Score: 500}}, [][]byte{}, "jiraiya", 2, "rid", int32(PHASE_DRAWING), r.nextTick.UnixMilli()),
+				itachi2, protobuf.MakePacketInitialRoomSnapshot([]*protobuf.ServerPacket_InitialRoomSnapshot_PlayerState{{Username: "jiraiya", Score: 100}, {Username: "sasuke", Score: 500}}, [][]byte{}, "jiraiya", 2, "rid", int32(PHASE_DRAWING), r.nextTick.UnixMilli(), 10, 80),
 			),
 		},
 		{
