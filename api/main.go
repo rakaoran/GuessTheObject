@@ -11,8 +11,11 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
 	"slices"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/gin-contrib/cors"
@@ -103,8 +106,8 @@ func main() {
 
 	idGen := game.NewIdGen()
 	tickerGen := game.NewTickerGen()
-
-	lobby := game.NewLobby(&idGen, &tickerGen)
+	wg := sync.WaitGroup{}
+	lobby := game.NewLobby(&idGen, &tickerGen, &wg)
 
 	lobbyStarted := make(chan struct{})
 	go lobby.LobbyActor(lobbyStarted)
@@ -118,9 +121,18 @@ func main() {
 		gameGroup.GET("/create", gameHandler.CreateGameHandler)
 
 		gameGroup.GET("/join/:roomid", gameHandler.JoinGameHandler)
-		println("here")
 		gameGroup.GET("/games", gameHandler.GetPublicGamesHandler)
 	}
 
-	r.Run(":5000")
+	go r.Run(":5000")
+	sigCh := make(chan os.Signal, 1)
+
+	signal.Notify(sigCh, syscall.SIGTERM, os.Interrupt)
+	println("Server started")
+	<-sigCh
+	println("SIGTERM or SIGINT received, waiting for rooms to finish before shutting down")
+
+	wg.Wait()
+	println("Shutting down now")
+
 }

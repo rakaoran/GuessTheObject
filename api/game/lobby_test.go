@@ -2,6 +2,7 @@ package game
 
 import (
 	"context"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,7 +19,7 @@ func setupLobby(_ *testing.T) (*lobby, *MockUniqueIdGenerator, *MockPeriodicTick
 	mockTickerCreator.On("Create", time.Second).Return(tickChan)
 	mockTickerCreator.On("Create", time.Second*30).Return(pingChan)
 
-	l := NewLobby(mockIdGen, mockTickerCreator)
+	l := NewLobby(mockIdGen, mockTickerCreator, &sync.WaitGroup{})
 
 	return l, mockIdGen, mockTickerCreator, tickChan, pingChan
 }

@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -476,7 +477,7 @@ func TestRealGameFlow_Integration(t *testing.T) {
 	mockIdGen.On("Dispose", "TEST-ROOM").Return()
 
 	tickerGen := NewTickerGen()
-	lobby := NewLobby(mockIdGen, &tickerGen)
+	lobby := NewLobby(mockIdGen, &tickerGen, &sync.WaitGroup{})
 
 	started := make(chan struct{})
 	go lobby.LobbyActor(started)

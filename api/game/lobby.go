@@ -2,10 +2,11 @@ package game
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
-func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreator) *lobby {
+func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreator, roomsWg *sync.WaitGroup) *lobby {
 	return &lobby{
 		rooms:                map[string]Room{},
 		pubRoomsDescriptions: map[string]roomDescription{},
@@ -16,6 +17,7 @@ func NewLobby(idgen UniqueIdGenerator, tickerCreator PeriodicTickerChannelCreato
 		roomJoinReqs:         make(chan roomJoinRequest, 256),
 		idGenerator:          idgen,
 		tickerCreator:        tickerCreator,
+		roomsWg:              roomsWg,
 	}
 }
 
@@ -101,7 +103,9 @@ func (l *lobby) handleAddAndRunRoom(r Room) {
 	l.rooms[id] = r
 	r.SetId(id)
 	rDesc := r.Description()
-	go r.GameLoop()
+	l.roomsWg.Go(func() {
+		r.GameLoop()
+	})
 	if rDesc.private {
 		return
 	}

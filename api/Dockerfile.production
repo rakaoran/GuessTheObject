@@ -7,14 +7,10 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 RUN go mod download
 COPY . .
-RUN protoc --go_out=. --go_opt=paths=source_relative ./internal/game/*.proto
-RUN go build -o ./bin/server ./cmd/server/main.go
+RUN protoc --go_out=. --go_opt=paths=source_relative ./domain/protobuf/*.proto
+RUN go build -o ./bin/server .
 
-FROM golang:1.25.1-alpine3.22
-WORKDIR /app
-COPY --from=builder /app/bin/server /app/
-COPY --from=builder /app/words.txt /app/
-RUN adduser -D oussama && chown -R oussama /app
-USER oussama
+FROM scratch
+COPY --from=builder /app/bin/server /server
 ENV GIN_MODE=release
-CMD [ "/app/server" ]
+CMD [ "/server" ]

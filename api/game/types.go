@@ -151,6 +151,7 @@ type lobby struct {
 	roomJoinReqs         chan roomJoinRequest
 	idGenerator          UniqueIdGenerator
 	tickerCreator        PeriodicTickerChannelCreator
+	roomsWg              *sync.WaitGroup
 }
 
 type idgen struct {
