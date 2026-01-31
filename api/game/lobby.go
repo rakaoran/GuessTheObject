@@ -44,6 +44,21 @@ func (l *lobby) RemoveRoom(roomId string) {
 	l.removeRoomChan <- roomId
 }
 
+func (l *lobby) GetPublicGames(ctx context.Context) []roomDescription {
+	respChan := make(chan []roomDescription, 1)
+	select {
+	case l.pubGamesReq <- respChan:
+		select {
+		case resp := <-respChan:
+			return resp
+		case <-ctx.Done():
+			return nil
+		}
+	case <-ctx.Done():
+		return nil
+	}
+}
+
 func (l *lobby) LobbyActor(started chan struct{}) {
 	ticker := l.tickerCreator.Create(time.Second)
 	pingTicker := l.tickerCreator.Create(time.Second * 30)

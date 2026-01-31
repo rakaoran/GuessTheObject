@@ -190,6 +190,42 @@ func (gh *GameHandler) JoinGameHandler(ctx *gin.Context) {
 	go player.WritePump(wsConn)
 }
 
+type PublicGameResponse struct {
+	ID           string `json:"id"`
+	Private      bool   `json:"private"`
+	PlayersCount int    `json:"playersCount"`
+	MaxPlayers   int    `json:"maxPlayers"`
+	Started      bool   `json:"started"`
+}
+
+func (gh *GameHandler) GetPublicGamesHandler(ctx *gin.Context) {
+	userId, exists := ctx.Get("id")
+	if !exists {
+		ctx.String(http.StatusUnauthorized, "unauthenticated")
+		return
+	}
+
+	_, ok := userId.(string)
+	if !ok {
+		ctx.String(http.StatusInternalServerError, "invalid-user-id")
+		return
+	}
+
+	games := gh.lobby.GetPublicGames(ctx.Request.Context())
+	response := make([]PublicGameResponse, 0, len(games))
+	for _, g := range games {
+		response = append(response, PublicGameResponse{
+			ID:           g.id,
+			Private:      g.private,
+			PlayersCount: g.playersCount,
+			MaxPlayers:   g.maxPlayers,
+			Started:      g.started,
+		})
+	}
+
+	ctx.JSON(http.StatusOK, response)
+}
+
 func NewGorillaWebSocketWrapper(conn *websocket.Conn) *GorillaWebSocketWrapper {
 	return &GorillaWebSocketWrapper{conn: conn}
 }

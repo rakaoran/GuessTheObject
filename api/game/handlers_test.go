@@ -371,6 +371,7 @@ func TestGorillaWebSocketWrapper(t *testing.T) {
 
 func TestCreateGameHandler_Success(t *testing.T) {
 	mockLobby := &MockLobby{}
+
 	mockUserGetter := &MockUserGetter{}
 	mockWordGen := &MockRandomWordsGenerator{}
 
@@ -528,4 +529,81 @@ func TestRealGameFlow_Integration(t *testing.T) {
 	assert.Contains(t, string(msg), "JoinerPlayer")
 
 	mockUserGetter.AssertExpectations(t)
+}
+
+func TestGameHandler_GetPublicGamesHandler(t *testing.T) {
+	t.Parallel()
+	gin.SetMode(gin.TestMode)
+
+	t.Run("success with multiple games", func(t *testing.T) {
+		t.Parallel()
+
+		mockLobby := &MockLobby{}
+		mockUserGetter := &MockUserGetter{}
+		mockWordGen := &MockRandomWordsGenerator{}
+
+		userID := "user-123"
+		mockUserGetter.On("GetUserById", mock.Anything, userID).Return(domain.User{Id: userID, Username: "TestUser"}, nil)
+
+		expectedGames := []roomDescription{
+			{id: "room-1", private: false, playersCount: 3, maxPlayers: 5, started: false},
+			{id: "room-2", private: false, playersCount: 5, maxPlayers: 5, started: true},
+		}
+
+		mockLobby.On("GetPublicGames", mock.Anything).Return(expectedGames)
+
+		handler := NewGameHandler(mockLobby, mockUserGetter, mockWordGen)
+
+		router := gin.New()
+		router.GET("/games", func(c *gin.Context) {
+			c.Set("id", userID)
+			handler.GetPublicGamesHandler(c)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/games", nil)
+		res := httptest.NewRecorder()
+
+		router.ServeHTTP(res, req)
+
+		assert.Equal(t, http.StatusOK, res.Code)
+		assert.Contains(t, res.Body.String(), `"id":"room-1"`)
+		assert.Contains(t, res.Body.String(), `"playersCount":3`)
+		assert.Contains(t, res.Body.String(), `"maxPlayers":5`)
+		assert.Contains(t, res.Body.String(), `"started":false`)
+		assert.Contains(t, res.Body.String(), `"id":"room-2"`)
+		assert.Contains(t, res.Body.String(), `"started":true`)
+
+		mockLobby.AssertExpectations(t)
+	})
+
+	t.Run("success with no games", func(t *testing.T) {
+		t.Parallel()
+
+		mockLobby := &MockLobby{}
+		mockUserGetter := &MockUserGetter{}
+		mockWordGen := &MockRandomWordsGenerator{}
+
+		userID := "user-123"
+		mockUserGetter.On("GetUserById", mock.Anything, userID).Return(domain.User{Id: userID, Username: "TestUser"}, nil)
+
+		mockLobby.On("GetPublicGames", mock.Anything).Return([]roomDescription{})
+
+		handler := NewGameHandler(mockLobby, mockUserGetter, mockWordGen)
+
+		router := gin.New()
+		router.GET("/games", func(c *gin.Context) {
+			c.Set("id", userID)
+			handler.GetPublicGamesHandler(c)
+		})
+
+		req := httptest.NewRequest(http.MethodGet, "/games", nil)
+		res := httptest.NewRecorder()
+
+		router.ServeHTTP(res, req)
+
+		assert.Equal(t, http.StatusOK, res.Code)
+		assert.Equal(t, "[]", res.Body.String())
+
+		mockLobby.AssertExpectations(t)
+	})
 }

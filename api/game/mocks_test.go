@@ -178,3 +178,8 @@ func (m *MockLobby) RequestUpdateDescription(desc roomDescription) {
 func (m *MockLobby) RemoveRoom(roomId string) {
 	m.Called(roomId)
 }
+
+func (m *MockLobby) GetPublicGames(ctx context.Context) []roomDescription {
+	args := m.Called(ctx)
+	return args.Get(0).([]roomDescription)
+}

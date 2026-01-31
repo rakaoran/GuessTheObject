@@ -60,6 +60,7 @@ type Lobby interface {
 	ForwardPlayerJoinRequestToRoom(ctx context.Context, jreq roomJoinRequest)
 	RequestUpdateDescription(desc roomDescription)
 	RemoveRoom(roomId string)
+	GetPublicGames(ctx context.Context) []roomDescription
 }
 
 type roomJoinRequest struct {
