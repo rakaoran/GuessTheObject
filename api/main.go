@@ -118,6 +118,8 @@ func main() {
 		gameGroup.GET("/create", gameHandler.CreateGameHandler)
 
 		gameGroup.GET("/join/:roomid", gameHandler.JoinGameHandler)
+		println("here")
+		gameGroup.GET("/games", gameHandler.GetPublicGamesHandler)
 	}
 
 	r.Run(":5000")
