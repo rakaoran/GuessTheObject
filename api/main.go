@@ -2,11 +2,12 @@ package main
 
 import (
 	"api/auth"
-	"api/config"
 	"api/crypto"
 	"api/game"
 	"api/storage"
 	"context"
+	"database/sql"
+	"embed"
 	"log"
 	"log/slog"
 	"net/http"
@@ -20,6 +21,8 @@ import (
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
+	_ "github.com/jackc/pgx/v5/stdlib"
+	"github.com/pressly/goose/v3"
 )
 
 func CreateServer(allowedOrigins []string) *gin.Engine {
@@ -56,14 +59,14 @@ func CreateServer(allowedOrigins []string) *gin.Engine {
 	return r
 }
 
+//go:embed migrations/*sql
+var embedMigrations embed.FS
+
 func main() {
 
 	// logger setup
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
-	if config.Debug {
-		slog.SetLogLoggerLevel(slog.LevelDebug)
-	}
 
 	// ENVs
 	ALLOWED_ORIGINS, exists := os.LookupEnv("ALLOWED_ORIGINS")
@@ -81,6 +84,32 @@ func main() {
 	if !exists {
 		log.Fatal("Missing jwt signing key")
 	}
+
+	// ---------------------------
+	// 🦆 GOOSE MIGRATIONS START
+	// ---------------------------
+	migrationDB, err := sql.Open("pgx", POSTGRES_URL)
+	if err != nil {
+		log.Fatal("Failed to open DB for migrations:", err)
+	}
+
+	goose.SetBaseFS(embedMigrations)
+
+	if err := goose.SetDialect("postgres"); err != nil {
+		log.Fatal("Failed to set goose dialect:", err)
+	}
+
+	if err := goose.Up(migrationDB, "migrations"); err != nil {
+		log.Fatal("Failed to run up migrations:", err)
+	}
+
+	if err := migrationDB.Close(); err != nil {
+		log.Fatal("Failed to close migration db connection:", err)
+	}
+	log.Println("Migrations applied successfully!")
+	// ---------------------------
+	// 🦆 GOOSE MIGRATIONS END
+	// ---------------------------
 
 	// Dependencies
 	pgRepo, err := storage.NewPostgresRepo(context.Background(), POSTGRES_URL)
