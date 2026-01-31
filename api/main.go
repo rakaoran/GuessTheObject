@@ -27,6 +27,7 @@ import (
 
 func CreateServer(allowedOrigins []string) *gin.Engine {
 	r := gin.New()
+	r.SetTrustedProxies([]string{"127.0.0.1", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"})
 	r.GET("/health", func(ctx *gin.Context) { ctx.String(200, "healthy") })
 
 	r.Use(func(ctx *gin.Context) {

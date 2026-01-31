@@ -8,7 +8,7 @@ RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 RUN go mod download
 COPY . .
 RUN protoc --go_out=. --go_opt=paths=source_relative ./domain/protobuf/*.proto
-RUN go build -o ./bin/server .
+RUN go build -ldflags="-s -w" -o ./bin/server .
 
 FROM scratch
 COPY --from=builder /app/bin/server /server
