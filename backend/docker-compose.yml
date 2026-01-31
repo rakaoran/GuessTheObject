@@ -1,7 +1,7 @@
 services:
   api:
     build:
-      context: ./api
+      context: .
       dockerfile: Dockerfile.dev
     ports:
       - 5000:5000
@@ -16,8 +16,8 @@ services:
       start_period: 5s
     develop:
       watch:
-        - path: ./api/
-          target: /app/
+        - path: .
+          target: /app
           action: sync
     environment:
       - POSTGRES_URL=${POSTGRES_URL}

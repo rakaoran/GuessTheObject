@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-ingress
+  annotations:
+    kubernetes.io/ingress.class: "traefik" # Default for k3s
+    cert-manager.io/cluster-issuer: "letsencrypt-prod" # Assumption for SSL
+spec:
+  rules:
+    - host: api.rakaoran.dev
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-service
+                port:
+                  number: 5000
+  tls:
+    - hosts:
+        - api.rakaoran.dev
+      secretName: api-rakaoran-dev-tls
