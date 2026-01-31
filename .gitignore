@@ -1,7 +1,6 @@
 .env*
 !.env.example
 tmp
-*.pb.*
 # Logs
 logs
 *.log
@@ -15,7 +14,8 @@ node_modules
 dist
 dist-ssr
 *.local
-
+.secrets*
+!.secrets.example
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

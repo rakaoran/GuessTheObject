@@ -1,0 +1,79 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+      - ".github/workflows/backend.yml"
+  pull_request:
+    branches: ["main"]
+    paths:
+      - "backend/**"
+
+jobs:
+  # JOB 1: Run tests in verbose mode for details if failed
+  test:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+
+      - name: Run Tests
+        working-directory: ./backend
+        run: |
+          go mod download
+          go test -v ./...
+
+  # JOB 2: Build docker image and push to dockerhub
+  build-and-push:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile.production
+          push: true
+          tags: |
+            ${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:${{ github.sha }}
+
+  # JOB 3: Deploy with ssh
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{secrets.VPS_PORT}}
+          command_timeout: 30m
+          script: |
+            # kubectl set image deployment/gto-backend my-game=${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:${{ github.sha }} -n default
+            mkdir lmaooo
+            #kubectl rollout status deployment/gto-backend -n default
