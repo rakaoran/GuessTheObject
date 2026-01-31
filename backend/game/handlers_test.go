@@ -400,7 +400,6 @@ func TestCreateGameHandler_Success(t *testing.T) {
 
 	client := &http.Client{}
 
-	// CHANGED: Query params instead of JSON body
 	query := "maxPlayers=4&roundsCount=3&wordsCount=3&choosingWordDuration=30&drawingDuration=60&private=true"
 	req, _ := http.NewRequest("GET", server.URL+"/create?"+query, nil)
 
@@ -413,6 +412,7 @@ func TestCreateGameHandler_Success(t *testing.T) {
 	assert.NoError(t, err)
 	defer resp.Body.Close()
 
+	time.Sleep(time.Second)
 	assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 
 	mockUserGetter.AssertExpectations(t)

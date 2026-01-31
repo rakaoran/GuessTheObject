@@ -34,7 +34,7 @@ func TestCSRFProtection(t *testing.T) {
 			path:           "/health",
 			origin:         "",
 			expectedStatus: http.StatusOK,
-			expectedBody:   "healthy",
+			expectedBody:   "healthyy",
 		},
 		{
 			name:           "Allowed origin should pass",

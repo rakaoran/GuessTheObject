@@ -75,5 +75,5 @@ jobs:
           command_timeout: 30m
           script: |
             # kubectl set image deployment/gto-backend my-game=${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:${{ github.sha }} -n default
-            mkdir lmaooo
+            touch ${{github.sha}}
             #kubectl rollout status deployment/gto-backend -n default
