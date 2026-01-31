@@ -7,7 +7,11 @@ CREATE TABLE words(
 
 INSERT INTO words (word) VALUES
     ('elephant'),
-    ('robot'),
+    ('banana'),
+    ('table'),
+    ('asteroid'),
+    ('cat'),
+    ('naruto'),
     ('bicycle');
 -- +goose StatementEnd
 

@@ -2,14 +2,13 @@ package storage_test
 
 import (
 	"api/domain"
+	"api/migrations"
 	"api/storage"
 	"context"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"github.com/docker/docker/api/types/container"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
@@ -21,20 +20,12 @@ var repo *storage.PostgresRepo
 
 func TestMain(m *testing.M) {
 	ctx := context.Background()
-	pwd, err := os.Getwd()
-	if err != nil {
-		panic(err)
-	}
-	absPath := filepath.Join(pwd, "../../postgres")
 
 	postgresContainer, err := postgres.Run(ctx,
 		"postgres:16-alpine3.22",
 		postgres.WithDatabase("testdb"),
 		postgres.WithUsername("testusername"),
 		postgres.WithPassword("testpassword"),
-		testcontainers.WithHostConfigModifier(func(hostConfig *container.HostConfig) {
-			hostConfig.Binds = append(hostConfig.Binds, absPath+":/docker-entrypoint-initdb.d")
-		}),
 		testcontainers.WithWaitStrategy(wait.ForLog("database system is ready to accept connections").WithOccurrence(2).WithStartupTimeout(5*time.Second)),
 	)
 	if err != nil {
@@ -45,6 +36,8 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
+
+	migrations.Migrate(connString)
 
 	repo, err = storage.NewPostgresRepo(ctx, connString)
 	if err != nil {
