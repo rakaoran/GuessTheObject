@@ -101,7 +101,6 @@ func (r *room) CloseAndRelease() {
 	close(r.joinReqs)
 	close(r.pingPlayers)
 	close(r.ticks)
-
 }
 
 func (r *room) Description() roomDescription {
@@ -126,14 +125,15 @@ func (r *room) GameLoop() {
 	m := protobuf.MakePacketInitialRoomSnapshot(nil, nil, "", 0, r.id, 0, 0, int64(r.choosingWordDuration.Seconds()), int64(r.drawingDuration.Seconds()))
 	mb, _ := proto.Marshal(m)
 	r.playerStates[0].player.Send(mb)
+loop:
 	for {
 		if r.phase == PHASE_GAMEEND {
-			return
+			break loop
 		}
 		select {
 		case _, ok := <-r.pingPlayers:
 			if !ok {
-				return
+				break loop
 			}
 			r.bufferPingTasks()
 
@@ -142,25 +142,28 @@ func (r *room) GameLoop() {
 
 		case now, ok := <-r.ticks:
 			if !ok {
-				return
+				break loop
 			}
 			r.handleTick(now)
 
 		case p, ok := <-r.playerRemovalRequests:
 			if !ok {
-				return
+				break loop
 			}
 			r.handleRemovePlayer(p)
 
 		case jreq, ok := <-r.joinReqs:
 			if !ok {
-				return
+				break loop
 			}
 
 			r.handleJoinRequest(jreq)
 		}
 
 		r.executeAndClearTasks()
+	}
+	for _, ps := range r.playerStates {
+		ps.player.CancelAndRelease()
 	}
 }
 
@@ -549,13 +552,9 @@ func (r *room) transitionToGameEnd() {
 	leaderboard := protobuf.MakePacketLeaderBoard()
 
 	r.broadcastToAll(leaderboard)
-
-	for _, ps := range r.playerStates {
-		ps.player.CancelAndRelease()
-	}
+	time.Sleep(200 * time.Millisecond) // wait for clients to receive the leaderboard
 
 	r.parentLobby.RemoveRoom(r.id)
-	r.playerStates = nil
 	r.wordChoices = nil
 	r.drawingHistory = nil
 }

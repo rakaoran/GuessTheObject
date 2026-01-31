@@ -152,6 +152,7 @@ func TestRoom_CloseAndRelease(t *testing.T) {
 func TestRoom_GameLoop_Close_And_Release(t *testing.T) {
 	r, h, _ := setupRoom()
 	h.On("Send", mock.Anything).Return(nil)
+	h.On("CancelAndRelease").Return()
 
 	wg := sync.WaitGroup{}
 

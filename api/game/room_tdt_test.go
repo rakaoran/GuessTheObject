@@ -712,9 +712,6 @@ func TestGame_GameScenario_1(t *testing.T) {
 			},
 			setupLobbyExpectations: func() {
 				l.On("RemoveRoom", "rid").Return().Once()
-				sasuke.On("CancelAndRelease").Return().Once()
-				jiraiya.On("CancelAndRelease").Return().Once()
-				itachi2.On("CancelAndRelease").Return().Once()
 			},
 			expectedDataSendTasks: MakeDataSendTasks(
 				sasuke, protobuf.MakePacketLeaderBoard(),
