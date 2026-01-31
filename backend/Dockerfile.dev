@@ -3,8 +3,6 @@ FROM golang:1.25.1-alpine3.22
 WORKDIR /app
 
 RUN go install github.com/air-verse/air@latest
-RUN apk add --no-cache protobuf
-RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 
 RUN air init
 COPY .air.toml .
@@ -13,7 +11,6 @@ COPY go.mod go.sum ./
 RUN go mod download
 
 COPY . .
-RUN protoc --go_out=. --go_opt=paths=source_relative ./domain/protobuf/*.proto
 ENV GIN_MODE=debug
 
 CMD [ "air" ]
