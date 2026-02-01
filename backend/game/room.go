@@ -397,7 +397,7 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 		return
 	}
 
-	if r.playerStates[senderIndex].hasGuessed {
+	if r.playerStates[senderIndex].hasGuessed || r.playerStates[r.drawerIndex].username == from {
 		for i, ps := range r.playerStates {
 			if ps.username == from {
 				continue
