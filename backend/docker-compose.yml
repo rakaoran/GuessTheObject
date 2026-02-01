@@ -2,7 +2,7 @@ services:
   api:
     build:
       context: .
-      dockerfile: Dockerfile.production
+      dockerfile: Dockerfile.dev
     ports:
       - 5000:5000
     depends_on:
