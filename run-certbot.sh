@@ -16,6 +16,9 @@ if [ "$STAGING" != "0" ]; then
   echo "!!! RUNNING IN STAGING MODE (Fake Certs) !!!"
 fi
 
+# Remove old container if it exists
+docker rm -f certbot-looper >/dev/null 2>&1 || true
+
 docker run -d \
   --name certbot-looper \
   --restart unless-stopped \
@@ -43,7 +46,7 @@ docker run -d \
         --force-renewal \
         $STAGING_ARG
     else
-        echo 'Valid Let\'s Encrypt certificate found. Skipping initial request.'
+        echo "Valid Let's Encrypt certificate found. Skipping initial request."
     fi
 
     # Renewal loop
