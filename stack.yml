@@ -16,6 +16,10 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+    environment:
+      - POSTGRES_URL=${POSTGRES_URL}
+      - JWT_KEY=${JWT_KEY}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS}
     stop_grace_period: 1h
     networks:
       - gto-net
