@@ -5,7 +5,7 @@ services:
     image: rakaoran/gto-backend:latest
     deploy:
       restart_policy:
-        condition: any
+        condition: on-failure
       replicas: 1
       update_config:
         parallelism: 1
