@@ -7,7 +7,7 @@ RUN go mod download
 COPY . .
 RUN go build -ldflags="-s -w" -o ./bin/server .
 
-FROM scratch
+FROM alpine
 COPY --from=builder /app/bin/server /server
 ENV GIN_MODE=release
 CMD [ "/server" ]

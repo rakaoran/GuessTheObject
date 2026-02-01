@@ -1,7 +1,7 @@
 #!/bin/bash
 
 
-domain="example.com"
+domain="api.gto.rakaoran.dev"
 data_path="./certbot"
 
 echo "### Creating dummy certificate for $domain ..."
