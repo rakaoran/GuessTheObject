@@ -16,14 +16,14 @@ if [ "$STAGING" != "0" ]; then
   echo "!!! RUNNING IN STAGING MODE (Fake Certs) !!!"
 fi
 
-# 3. RUN CONTAINER (No Network Needed)
 docker run -d \
   --name certbot-looper \
   --restart unless-stopped \
   -v $(pwd)/certbot/conf:/etc/letsencrypt \
   -v $(pwd)/certbot/www:/var/www/certbot \
+  --entrypoint "/bin/sh" \
   certbot/certbot \
-  /bin/sh -c "
+  -c "
     trap exit TERM;
     
     # Check if we need to replace the cert
