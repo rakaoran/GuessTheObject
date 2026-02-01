@@ -46,7 +46,7 @@ docker run -d \
         --force-renewal \
         $STAGING_ARG
     else
-        echo "Valid Let's Encrypt certificate found. Skipping initial request."
+        echo \"Valid Let's Encrypt certificate found. Skipping initial request.\"
     fi
 
     # Renewal loop
