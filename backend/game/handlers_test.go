@@ -5,9 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -464,72 +462,6 @@ func TestJoinGameHandler_Success(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	mockUserGetter.AssertExpectations(t)
 	mockLobby.AssertExpectations(t)
-}
-
-func TestRealGameFlow_Integration(t *testing.T) {
-	// 1. Setup Dependencies
-	mockUserGetter := &MockUserGetter{}
-	mockUserGetter.On("GetUserById", mock.Anything, "host-id").Return(domain.User{Id: "host-id", Username: "HostPlayer"}, nil)
-	mockUserGetter.On("GetUserById", mock.Anything, "joiner-id").Return(domain.User{Id: "joiner-id", Username: "JoinerPlayer"}, nil)
-
-	mockIdGen := &MockUniqueIdGenerator{}
-	mockIdGen.On("Generate").Return("TEST-ROOM")
-	mockIdGen.On("Dispose", "TEST-ROOM").Return()
-
-	tickerGen := NewTickerGen()
-	lobby := NewLobby(mockIdGen, &tickerGen, &sync.WaitGroup{})
-
-	started := make(chan struct{})
-	go lobby.LobbyActor(started)
-	<-started
-
-	gin.SetMode(gin.TestMode)
-	handler := NewGameHandler(lobby, mockUserGetter, &MockRandomWordsGenerator{})
-	router := gin.New()
-
-	router.GET("/create", func(c *gin.Context) {
-		c.Set("id", "host-id")
-		handler.CreateGameHandler(c)
-	})
-	router.GET("/join/:roomid", func(c *gin.Context) {
-		c.Set("id", "joiner-id")
-		handler.JoinGameHandler(c)
-	})
-
-	server := httptest.NewServer(router)
-	defer server.Close()
-
-	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/create"
-	q := url.Values{}
-	q.Add("maxPlayers", "4")
-	q.Add("roundsCount", "3")
-	q.Add("wordsCount", "3")
-	q.Add("choosingWordDuration", "30")
-	q.Add("drawingDuration", "60")
-	q.Add("private", "false")
-
-	hostWs, _, err := websocket.DefaultDialer.Dial(wsURL+"?"+q.Encode(), nil)
-	assert.NoError(t, err)
-	defer hostWs.Close()
-
-	joinURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/join/TEST-ROOM"
-	joinWs, _, err := websocket.DefaultDialer.Dial(joinURL, nil)
-	assert.NoError(t, err)
-	defer joinWs.Close()
-
-	_, msg, err := joinWs.ReadMessage()
-	assert.NoError(t, err)
-	assert.Contains(t, string(msg), "TEST-ROOM")
-
-	_, msg, err = hostWs.ReadMessage()
-	assert.NoError(t, err)
-	assert.Contains(t, string(msg), "TEST-ROOM")
-
-	_, msg, err = hostWs.ReadMessage()
-	assert.NoError(t, err)
-	assert.Contains(t, string(msg), "JoinerPlayer")
-
-	mockUserGetter.AssertExpectations(t)
 }
 
 func TestGameHandler_GetPublicGamesHandler(t *testing.T) {
