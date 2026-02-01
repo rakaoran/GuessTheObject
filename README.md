@@ -37,6 +37,8 @@ The project is split into a **Vue 3** frontend and a **Go** backend, deployed us
 - **Containerization**: Docker & Docker Swarm compatibility (`stack.yml`).
 - **Proxy**: Nginx as a reverse proxy, SSL terminator, and **rate limiter** (1r/s) to prevent abuse.
 - **SSL**: Automated Let's Encrypt certificates via Certbot.
+- **CI/CD**: GitHub Actions for building and deploying the stack.
+- **VPS**: Azure Virtual Machine for hosting the stack.
 
 ## Development Setup
 
