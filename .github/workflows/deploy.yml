@@ -74,6 +74,5 @@ jobs:
           port: ${{secrets.VPS_PORT}}
           command_timeout: 30m
           script: |
-            # kubectl set image deployment/gto-backend my-game=${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:${{ github.sha }} -n default
-            touch ${{github.sha}}
-            #kubectl rollout status deployment/gto-backend -n default
+            docker service update --image ${{ secrets.DOCKERHUB_USERNAME }}/gto-backend:${{ github.sha }} gto_backend
+            docker system prune -af
