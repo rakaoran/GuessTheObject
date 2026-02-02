@@ -3,6 +3,7 @@ package game
 import (
 	"api/domain/protobuf"
 	"context"
+	"strings"
 	"time"
 
 	"google.golang.org/protobuf/proto"
@@ -378,7 +379,7 @@ func (r *room) handlePlayerMessageEnvelope(clientMessage *protobuf.ClientPacket_
 			break
 		}
 	}
-	if clientMessage.Message == r.currentWord && !r.playerStates[senderIndex].hasGuessed && r.phase == PHASE_DRAWING {
+	if strings.ToLower(clientMessage.Message) == r.currentWord && !r.playerStates[senderIndex].hasGuessed && r.phase == PHASE_DRAWING {
 		serverPacket := protobuf.MakePacketPlayerGuessedTheWord(from)
 		r.playerStates[senderIndex].scoreIncrement = (len(r.playerStates) - 1 - r.guessersCount) * 100
 		r.playerStates[senderIndex].hasGuessed = true
