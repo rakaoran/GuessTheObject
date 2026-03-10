@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { endpoints } from '../config'
 import PublicGamesList from '../components/PublicGamesList.vue'
+import ServerDownBanner from '../components/ServerDownBanner.vue'
 
 const router = useRouter()
 const isLoggedIn = ref(false)
@@ -36,6 +37,10 @@ const handleLogout = async () => {
 
 <template>
   <div class="min-h-screen bg-[#0F1115] text-[#E6E6E6] font-sans flex flex-col">
+
+    <div class="container mx-auto px-4 pt-6 max-w-6xl">
+      <ServerDownBanner />
+    </div>
 
     <header class="container mx-auto px-4 py-8 md:py-12 flex flex-col items-center text-center max-w-6xl">
 
